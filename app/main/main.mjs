@@ -174,6 +174,12 @@ const hub = integrations.createHub({
 app.on('before-quit', () => hub.closeAll());
 
 /* ---------- 串门（peers.mjs 加密与中转、peerhub.mjs 调度；这里接窗口、动画和本机搜索） ---------- */
+/* 串门里显示的默认名字：电脑名；很多网络里主机名是 bogon / localhost / IP，这时用登录用户名 */
+function defaultPeerName() {
+  const h = os.hostname().replace(/\.(local|lan|home)$/i, '');
+  if (h && !/^(bogon|localhost|ip-|\d+[-.]\d+)/i.test(h)) return h;
+  try { return os.userInfo().username || '我的桌面'; } catch { return '我的桌面'; }
+}
 function presetRelay() { // 公司版打包时写进 builtin/integrations.json 的 relay；管理员也可以放在数据目录的 integrations-preset.json
   for (const f of [path.join(HERE, '..', 'builtin', 'integrations.json'), store.file('integrations-preset.json')]) { try { const r = peers.relayUrl(JSON.parse(fs.readFileSync(f, 'utf8')).relay || ''); if (r) return r; } catch {} }
   return null;
@@ -189,7 +195,7 @@ const peerHub = createPeerHub({
   settings: () => settings(), relay: peerRelay, fetchImpl: (u, o) => net.fetch(u, o),
   getIdentity: () => { try { const e = store.read('secrets.json', {}).peer; return e && safeStorage.isEncryptionAvailable() ? JSON.parse(safeStorage.decryptString(Buffer.from(e, 'base64'))) : null; } catch { return null; } },
   setIdentity: v => { const s = store.read('secrets.json', {}); s.peer = safeStorage.encryptString(JSON.stringify(v)).toString('base64'); store.write('secrets.json', s); },
-  myName: () => String(settings().peers?.name || os.hostname().replace(/\.(local|lan)$/i, '')).slice(0, 20),
+  myName: () => String(settings().peers?.name || defaultPeerName()).slice(0, 20),
   myLook,
   onUpdate: () => { if (panel && !panel.isDestroyed()) panel.webContents.send('peer:update'); },
   sprite: m => toSprite(m),
