@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>JM Desk 访客</title>
+<style>
+:root{--a1:#f472b6;--a2:#a78bfa;--ink:#2e1f40;--sub:#6e6284;--glow:color-mix(in srgb,var(--a1) 30%,transparent)}
+html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;font:12.5px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);user-select:none}
+/* 窗口 300×380：上面是说话气泡，下面是访客精灵舞台 */
+#stage{position:absolute;left:40px;top:150px;width:220px;height:220px}
+#stage canvas{display:block;width:100%!important;height:100%!important;-webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 74%,rgba(0,0,0,.6) 88%,transparent 100%)}
+#tag{position:absolute;left:50%;top:352px;transform:translateX(-50%);font-size:11px;font-weight:650;padding:1px 9px;border-radius:999px;color:#fff;
+  background:linear-gradient(135deg,var(--a1),var(--a2));box-shadow:0 2px 8px var(--glow);white-space:nowrap;opacity:0;transition:opacity .4s}
+body.landed #tag{opacity:1}
+#say{position:absolute;left:8px;right:8px;bottom:236px;padding:10px 12px 9px;border-radius:18px;
+  background:radial-gradient(120% 90% at 0% 0%,color-mix(in srgb,var(--a1) 12%,transparent),transparent 60%),linear-gradient(170deg,rgba(255,252,255,.97),rgba(249,245,255,.96));
+  box-shadow:0 12px 30px color-mix(in srgb,var(--a2) 30%,transparent),inset 0 0 0 1px rgba(255,255,255,.95);opacity:0;transform:translateY(8px) scale(.94);transition:opacity .25s,transform .35s cubic-bezier(.2,1.35,.4,1);pointer-events:none}
+#say.show{opacity:1;transform:none;pointer-events:auto}
+#say::after{content:'';position:absolute;left:50%;bottom:-6px;width:12px;height:12px;margin-left:-6px;transform:rotate(45deg);background:#f8f4ff;box-shadow:2px 2px 4px color-mix(in srgb,var(--a2) 14%,transparent)}
+#say b{display:block;font-size:13px;background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;color:transparent}
+#say p{margin:4px 0 0;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+#say .row{display:flex;gap:6px;margin-top:8px}
+#say button{font:inherit;font-size:12px;border:none;border-radius:999px;padding:4px 12px;cursor:pointer;background:rgba(255,255,255,.9);color:var(--ink);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a2) 26%,transparent)}
+#say button.pri{color:#fff;background:linear-gradient(135deg,var(--a1),var(--a2));box-shadow:0 3px 10px var(--glow)}
+#say button:hover{transform:translateY(-1px)}
+/* 搬运的小包裹：一颗发光的星光球，挂在精灵身下 */
+#parcel{position:absolute;left:50%;top:300px;width:34px;height:34px;margin-left:-17px;border-radius:50%;opacity:0;transform:scale(.2);transition:opacity .3s,transform .45s cubic-bezier(.2,1.6,.4,1);
+  background:radial-gradient(circle at 38% 32%,#fff 0 18%,#fff6c9 30%,var(--a1) 75%,var(--a2));box-shadow:0 0 18px 4px var(--glow),0 0 32px color-mix(in srgb,#ffe27a 60%,transparent)}
+#parcel::after{content:'✦';position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:15px;text-shadow:0 0 6px #fff}
+#parcel.on{opacity:1;transform:scale(1);animation:sway 1.2s ease-in-out infinite}
+@keyframes sway{0%,100%{translate:0 0}50%{translate:0 4px}}
+/* 找东西时周围转圈的小星星 */
+#seek{position:absolute;left:150px;top:255px;width:0;height:0;opacity:0;transition:opacity .3s}
+#seek.on{opacity:1}
+#seek i{position:absolute;width:10px;height:10px;margin:-5px;border-radius:50%;background:radial-gradient(circle,#fff,var(--a1));box-shadow:0 0 8px var(--glow);animation:orbit 1.6s linear infinite}
+#seek i:nth-child(2){animation-delay:-.53s}#seek i:nth-child(3){animation-delay:-1.06s}
+@keyframes orbit{from{transform:rotate(0) translateX(96px) rotate(0)}to{transform:rotate(360deg) translateX(96px) rotate(-360deg)}}
+</style></head>
+<body>
+<div id="say"><b id="st"></b><p id="sp"></p><div class="row" id="btns"></div></div>
+<div id="stage"></div>
+<div id="seek"><i></i><i></i><i></i></div>
+<div id="parcel"></div>
+<div id="tag"></div>
+<script type="module" src="./visitor.js"></script>
+</body></html>

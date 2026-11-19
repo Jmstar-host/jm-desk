@@ -1,0 +1,4 @@
+{
+  "_note": "安装包预置的接入。开源默认为空；企业打包时用 JM_DESK_PRESET=<文件> npm run dist:mac 写入，打完自动清空。",
+  "integrations": []
+}

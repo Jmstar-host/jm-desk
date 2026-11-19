@@ -1,0 +1,106 @@
+/* JM Desk 共用视觉：精灵的「念力泡泡」风格。面板、线索、工作台、提示层都引用这一份。
+ * 颜色变量 --a1 / --a2 跟随当前形象的主色（由各窗口按主进程给的值设置）。
+ * 页面自己的样式只写布局，控件（按钮、输入框、下拉、勾选、标签、卡片、弹窗、加载）一律用这里的。 */
+:root{
+  --a1:#f472b6;--a2:#a78bfa;--ink:#2e1f40;--sub:#6e6284;
+  --line:color-mix(in srgb,var(--a2) 20%,transparent);
+  --glow:color-mix(in srgb,var(--a1) 28%,transparent);
+  --card:rgba(255,255,255,.66);
+  --pearl:radial-gradient(120% 90% at 0% 0%,color-mix(in srgb,var(--a1) 12%,transparent),transparent 60%),radial-gradient(100% 80% at 100% 100%,color-mix(in srgb,var(--a2) 14%,transparent),transparent 60%),linear-gradient(170deg,rgba(255,252,255,.97),rgba(249,245,255,.96));
+  --iris:conic-gradient(from 210deg,#ffd3ef,#dccbff,#c9eeff,#fff0c9,#ffd3ef);
+  --rim:inset 0 0 0 1px rgba(255,255,255,.95);
+  --font:13px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+}
+/* 虹彩描边：给任何圆角容器加 .iris */
+.iris{position:relative}
+.iris::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;padding:1.5px;opacity:.55;background:var(--iris);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor}
+
+/* 按钮 */
+button{font:inherit;font-size:12px;border:none;background:rgba(255,255,255,.88);color:var(--ink);border-radius:999px;padding:5px 13px;cursor:pointer;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a2) 22%,transparent);transition:transform .15s,box-shadow .2s,background .2s}
+button:hover{transform:translateY(-1px);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a2) 36%,transparent),0 3px 10px var(--glow)}
+button:active{transform:scale(.96)}
+button.pri{background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;box-shadow:0 3px 10px var(--glow),inset 0 1px 0 rgba(255,255,255,.35)}
+button.pri:hover{box-shadow:0 5px 14px var(--glow),inset 0 1px 0 rgba(255,255,255,.35)}
+button.ghost{background:transparent}
+button.danger{color:#be123c;box-shadow:inset 0 0 0 1px rgba(225,29,72,.25)}
+button:disabled{opacity:.5;transform:none;cursor:default}
+
+/* 输入 */
+input,textarea,select{font:inherit;border:none;border-radius:10px;padding:6px 9px;background:rgba(255,255,255,.92);color:var(--ink);box-sizing:border-box;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a2) 22%,transparent);outline:none;transition:box-shadow .2s}
+input:focus,textarea:focus,select:focus{box-shadow:inset 0 0 0 1.5px var(--a1),0 0 0 3px var(--glow)}
+input::placeholder,textarea::placeholder{color:color-mix(in srgb,var(--sub) 70%,transparent)}
+textarea{width:100%;min-height:58px;resize:vertical;line-height:1.55}
+/* 下拉：去掉系统样式，换成圆角泡泡 + 自绘箭头 */
+select{-webkit-appearance:none;appearance:none;padding-right:28px;cursor:pointer;
+  background:rgba(255,255,255,.92) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238b7cb8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center/12px}
+select:disabled{opacity:.55;cursor:default}
+/* 勾选：小泡泡，勾上是渐变色 */
+input[type=checkbox]{-webkit-appearance:none;appearance:none;width:16px;height:16px;padding:0;margin:0;flex:none;border-radius:5px;cursor:pointer;vertical-align:middle;
+  background:rgba(255,255,255,.95);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--a2) 40%,transparent);transition:background .15s,box-shadow .15s}
+input[type=checkbox]:checked{background:linear-gradient(135deg,var(--a1),var(--a2)) ;box-shadow:0 2px 6px var(--glow)}
+input[type=checkbox]:checked::after{content:'';display:block;width:10px;height:10px;margin:3px;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.2 7.3 8 2.8' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center/10px}
+input[type=checkbox]:disabled{opacity:.45;cursor:default}
+input[type=range]{box-shadow:none;accent-color:var(--a1);padding:0;background:none}
+input[type=color]{padding:0}
+
+/* 文字与状态 */
+.muted{color:var(--sub);font-size:12px;line-height:1.55}
+.err{color:#c2410c;font-size:12px;margin-top:6px;white-space:pre-wrap}
+.ok{color:#15803d;font-size:12px;margin-top:6px}
+code{background:color-mix(in srgb,var(--a2) 12%,transparent);padding:1px 5px;border-radius:5px;font-size:11.5px}
+pre.args{white-space:pre-wrap;word-break:break-all;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;background:color-mix(in srgb,var(--a2) 8%,white);border-radius:10px;padding:8px 10px;max-height:220px;overflow:auto;margin:6px 0}
+
+/* 标签与筛选泡泡 */
+.tag{padding:1px 8px;border-radius:999px;font-size:11px;background:color-mix(in srgb,var(--a2) 14%,transparent);color:var(--ink);white-space:nowrap}
+.tag.ok{background:rgba(21,128,61,.12);color:#166534}.tag.warn{background:rgba(234,88,12,.12);color:#9a3412}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips b{padding:4px 11px;border-radius:999px;font-weight:500;font-size:12px;color:var(--sub);cursor:pointer;background:rgba(255,255,255,.55);box-shadow:var(--rim);transition:.2s}
+.chips b:hover{color:var(--ink)}
+.chips b.on{color:var(--ink);font-weight:650;background:#fff;box-shadow:var(--rim),0 2px 10px var(--glow)}
+.chips b i{font-style:normal;color:var(--sub);margin-left:3px;font-weight:400}
+
+/* 卡片：一颗颗小泡泡 */
+.card{background:var(--card);border-radius:16px;padding:11px 13px;margin-bottom:10px;box-shadow:var(--rim),0 3px 12px color-mix(in srgb,var(--a2) 10%,transparent);animation:rise .32s cubic-bezier(.2,1.2,.4,1) both}
+.card h3{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:6px}
+.card h3::before{content:'';width:7px;height:7px;border-radius:50%;flex:none;background:linear-gradient(135deg,var(--a1),var(--a2));box-shadow:0 0 6px var(--glow)}
+
+/* 精灵小球（标题旁） */
+.orb{width:30px;height:30px;border-radius:50%;flex:none;position:relative;
+  background:radial-gradient(circle at 50% 55%,rgba(255,255,255,.2) 45%,color-mix(in srgb,var(--a1) 45%,transparent) 100%),radial-gradient(circle at 46% 58%,#fff,#fdf2fb);
+  box-shadow:0 3px 10px var(--glow),inset 0 0 8px color-mix(in srgb,var(--a1) 40%,transparent),inset 0 0 0 1px rgba(255,255,255,.9);animation:bob 3.6s ease-in-out infinite}
+.orb::before{content:'';position:absolute;left:18%;top:10%;width:42%;height:26%;border-radius:50%;transform:rotate(-22deg);background:radial-gradient(ellipse,rgba(255,255,255,.95),transparent 70%)}
+.orb::after{content:'';position:absolute;inset:28%;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--a1) 80%,white) 0 30%,transparent 70%);opacity:.8}
+
+/* 星光 */
+.sky{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:inherit}
+.sky b{position:absolute;width:8px;height:8px;opacity:0;animation:tw 4.2s ease-in-out infinite;
+  background:radial-gradient(circle,#fff 0 18%,transparent 19%),conic-gradient(from 45deg,transparent 0 22%,#fff 23% 27%,transparent 28% 47%,#fff 48% 52%,transparent 53% 72%,#fff 73% 77%,transparent 78% 97%,#fff 98%);
+  filter:drop-shadow(0 0 3px var(--a1))}
+
+/* 弹窗：从中间轻轻弹出的泡泡 */
+.modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:color-mix(in srgb,var(--ink) 16%,transparent);backdrop-filter:blur(3px);animation:fade .18s ease both}
+.dlg{width:84%;max-width:460px;max-height:80%;overflow:auto;background:var(--pearl);border-radius:20px;padding:15px 17px;
+  box-shadow:0 18px 44px color-mix(in srgb,var(--a2) 32%,transparent),var(--rim),inset 0 0 18px color-mix(in srgb,var(--a1) 10%,transparent);animation:popin .3s cubic-bezier(.2,1.35,.4,1) both}
+.dlg h3{margin:0 0 6px;font-size:14px}
+
+/* 加载中 / 空状态 */
+.loading{display:flex;justify-content:center;gap:7px;padding:26px 0}
+.loading i{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--a2));animation:pulse 1s ease-in-out infinite}
+.loading i:nth-child(2){animation-delay:.15s}.loading i:nth-child(3){animation-delay:.3s}
+.empty{color:var(--sub);text-align:center;padding:60px 20px}
+
+/* 滚动条 */
+::-webkit-scrollbar{width:7px;height:7px}::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--a2) 28%,transparent);border-radius:4px}::-webkit-scrollbar-track{background:transparent}
+::selection{background:color-mix(in srgb,var(--a1) 25%,transparent)}
+
+@keyframes rise{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes tw{0%,100%{opacity:0;transform:scale(.4) rotate(0)}40%{opacity:.85;transform:scale(1) rotate(20deg)}60%{opacity:.6}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes pulse{0%,100%{opacity:.3;transform:scale(.7)}50%{opacity:1;transform:scale(1)}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes popin{from{opacity:0;transform:scale(.9) translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.card,.orb,.sky b,.loading i,.modal,.dlg{animation:none!important}}

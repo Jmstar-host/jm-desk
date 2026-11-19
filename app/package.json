@@ -1,0 +1,71 @@
+{
+  "name": "jm-desk",
+  "productName": "JM Desk",
+  "version": "1.1.0",
+  "description": "开源的本地 AI 桌面助手：桌面精灵 + 信息源 + 平台接入 + 知识库，可二次开发",
+  "license": "MIT",
+  "main": "main/main.mjs",
+  "type": "module",
+  "scripts": {
+    "sync-core": "node scripts/sync-core.mjs",
+    "prestart": "node scripts/sync-core.mjs",
+    "start": "electron .",
+    "predist:mac": "node scripts/sync-core.mjs && node scripts/apply-preset.mjs",
+    "dist:mac": "electron-builder --mac dmg --arm64",
+    "predist:win": "node scripts/sync-core.mjs && node scripts/apply-preset.mjs",
+    "dist:win": "electron-builder --win nsis --x64",
+    "release": "node scripts/release.mjs",
+    "set-update-feed": "node scripts/set-update-feed.mjs",
+    "postdist:mac": "node scripts/apply-preset.mjs --reset",
+    "postdist:win": "node scripts/apply-preset.mjs --reset"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.2"
+  },
+  "devDependencies": {
+    "electron": "38.8.6",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "net.jmdesk.app",
+    "productName": "JM Desk",
+    "files": [
+      "main/**",
+      "renderer/**",
+      "builtin/**",
+      "core/**",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "icon": "builtin/icon.png",
+      "identity": null,
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "builtin/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "shortcutName": "JM Desk"
+    },
+    "directories": {
+      "output": "../dist"
+    },
+    "asar": true,
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    }
+  },
+  "author": "JM Desk contributors"
+}

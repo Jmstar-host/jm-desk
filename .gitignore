@@ -1,0 +1,8 @@
+node_modules/
+dist/
+app/core/
+.DS_Store
+*.log
+# 企业预置不进仓库（打包时注入）；示例除外
+presets/*.json
+!presets/example.integrations.json

@@ -1,0 +1,29 @@
+{
+  "_note": "企业预置接入示例。打包时：JM_DESK_PRESET=presets/你的文件.json npm run dist:mac。这里只能放地址和工具白名单，不能放任何凭据。",
+  "relay": "https://relay.example.com/jm-desk-relay",
+  "integrations": [
+    {
+      "id": "company-knowledge",
+      "name": "公司知识库",
+      "kind": "mcp-http",
+      "url": "https://knowledge.example.com/mcp",
+      "urls": [
+        "https://knowledge.example.com/mcp",
+        "https://knowledge-backup.example.com/mcp"
+      ],
+      "readOnly": true,
+      "knowledge": true,
+      "allowTools": [
+        "knowledge_search",
+        "knowledge_ask",
+        "business_catalog"
+      ],
+      "credential": {
+        "type": "bearer",
+        "label": "知识库个人凭据",
+        "help": "向知识库管理员申请；可以粘贴，也可以填本机凭据文件的路径",
+        "inheritEnv": "KNOWLEDGE_TOKEN_FILE"
+      }
+    }
+  ]
+}
