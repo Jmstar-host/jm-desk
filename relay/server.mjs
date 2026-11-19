@@ -7,9 +7,12 @@
  *   POST /v1/pair/claim  { code, pub, name, box }       → { pub, name, box }     同时把认领方信息投进发起方的信箱
  *   POST /v1/send        { to, from, data }             → { ok }                 data 是密文（base64），不超过 256 KB
  *   POST /v1/poll        { key, wait }                  → { messages: [...] }    key 的 sha256 就是信箱号；最多等 wait 秒（≤25）
- * 信箱号 box = sha256(key)：只有持有 key 的一方能取信，别人只能往里投。 */
+ * 信箱号 box = sha256(key)：只有持有 key 的一方能取信，别人只能往里投。
+ * 可选：DL_DIR=<目录> [DL_KEY=<口令>] 时，GET /dl/[<口令>/] 是安装包下载页（只读，只列 .dmg/.exe/.zip）。 */
 import http from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const MAX_BODY = 300 * 1024, MAX_BOX = 50, MSG_TTL = 60 * 60e3, CODE_TTL = 10 * 60e3;
 const sha = s => crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -17,7 +20,31 @@ const isBox = b => typeof b === 'string' && /^[0-9a-f]{64}$/.test(b);
 const isPub = p => typeof p === 'string' && /^[A-Za-z0-9+/=_-]{20,200}$/.test(p);
 const clip = (s, n) => String(s ?? '').slice(0, n);
 
-export function createRelay({ now = () => Date.now() } = {}) {
+/* 可选的下载页（给同事分发安装包）：设置 DL_DIR 才开启，只读这个目录里的 .dmg / .exe / .zip，不进子目录。
+ * 设置 DL_KEY 时地址要带上它：/dl/<DL_KEY>/，不知道的人打不开。 */
+const DL_FILE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,120}\.(dmg|exe|zip)$/;
+function listDl(dir) { try { return fs.readdirSync(dir).filter(f => DL_FILE.test(f) && fs.statSync(path.join(dir, f)).isFile()).sort(); } catch { return []; } }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '' } = {}) {
+  function download(req, res, send) {
+    let rest;
+    try { rest = decodeURIComponent(req.url.split('?')[0].slice(3)); } catch { return send(404, { error: 'not_found' }); }
+    if (dlKey) { if (!rest.startsWith('/' + dlKey + '/') && rest !== '/' + dlKey) return send(404, { error: 'not_found' }); rest = rest.slice(dlKey.length + 1); }
+    const name = rest.replace(/^\/+/, '');
+    if (!name) { // 下载页
+      const base = dlKey ? `${encodeURIComponent(dlKey)}/` : '';
+      const rows = listDl(dlDir).map(f => { const mb = (fs.statSync(path.join(dlDir, f)).size / 1048576).toFixed(1); return `<li><a href="${base}${encodeURIComponent(f)}">${esc(f)}</a> <small>${mb} MB</small></li>`; }).join('');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+      return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>JM Desk 下载</title><style>body{font:15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:560px;margin:48px auto;padding:0 16px;color:#2e1f40}a{color:#7c3aed}li{margin:10px 0}small{color:#888}</style><h2>JM Desk 下载</h2><ul>${rows || '<li>暂无文件</li>'}</ul><p><small>Mac 选 .dmg（第一次打开要右键 → 打开），Windows 选 .exe；.zip 是完整包（含两个安装包和说明）。</small></p>`);
+    }
+    if (!DL_FILE.test(name) || !listDl(dlDir).includes(name)) return send(404, { error: 'not_found' });
+    const file = path.join(dlDir, name), st = fs.statSync(file);
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Robots-Tag': 'noindex',
+      'Content-Disposition': `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}` });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  }
   const codes = new Map(), boxes = new Map(), waiters = new Map(), hits = new Map();
   const deliver = (box, msg) => {
     const q = boxes.get(box) || []; q.push({ ...msg, at: now() }); while (q.length > MAX_BOX) q.shift(); boxes.set(box, q);
@@ -37,6 +64,7 @@ export function createRelay({ now = () => Date.now() } = {}) {
   async function handle(req, res) {
     const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
     if (req.method === 'GET' && req.url === '/v1/health') return send(200, { ok: true, service: 'jm-desk-relay' });
+    if ((req.method === 'GET' || req.method === 'HEAD') && dlDir && req.url.startsWith('/dl')) return download(req, res, send);
     if (req.method !== 'POST') return send(405, { error: 'method_not_allowed' });
     let size = 0; const chunks = [];
     for await (const c of req) { size += c.length; if (size > MAX_BODY) return send(413, { error: 'too_large' }); chunks.push(c); }
@@ -82,5 +110,5 @@ export function createRelay({ now = () => Date.now() } = {}) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT || 8787), host = process.env.HOST || '127.0.0.1';
-  createRelay().listen(port, host, () => console.log(`jm-desk relay on http://${host}:${port}`));
+  createRelay({ dlDir: process.env.DL_DIR || null, dlKey: process.env.DL_KEY || '' }).listen(port, host, () => console.log(`jm-desk relay on http://${host}:${port}`));
 }

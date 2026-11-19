@@ -30,3 +30,7 @@ handle_path /jm-desk-relay/* {
 
 - **个人**：在「搬运」页填入中转地址。
 - **企业**：打包时在预置文件里写 `"relay": "https://…/jm-desk-relay"`（见 `presets/example.integrations.json`），使用者装好就能用。
+
+## 可选：顺便当安装包下载页
+
+启动时加 `DL_DIR=<目录>`（可再加 `DL_KEY=<口令>`），中转会在 `GET /dl/<口令>/` 提供一个下载页，只列出该目录里的 `.dmg` / `.exe` / `.zip`，只读、不进子目录。没设 `DL_DIR` 时这个功能完全关闭。
