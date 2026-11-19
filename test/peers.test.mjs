@@ -13,7 +13,7 @@ test('结伴：A 申请结伴码，B 认领；双方拿到对方公钥，暗号�
     const { code } = await c.offer(A, '小 A'); assert.match(code, /^\d{6}$/);
     const got = await c.claim(B, '小 B', code.slice(0, 3) + '-' + code.slice(3));
     assert.equal(got.pub, A.pub); assert.equal(got.name, '小 A');
-    await assert.rejects(c.claim(P.newIdentity(), 'C', code), /结伴码不对/);
+    await assert.rejects(c.claim(P.newIdentity(), 'C', code), /好友码不对/);
     const inbox = await c.poll(A, 0); const u = P.unpack(A, inbox.messages, [], [{ box: '?' }]);
     assert.equal(u[0].kind, 'pair-claimed'); assert.equal(u[0].pub, B.pub); assert.equal(u[0].name, '小 B');
     assert.deepEqual(P.fingerprint(A.pub, B.pub), P.fingerprint(B.pub, A.pub));

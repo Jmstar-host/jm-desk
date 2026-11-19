@@ -215,13 +215,13 @@ const peerHub = createPeerHub({
     },
     send(id, m) { const w = visitors.get(id); if (w && !w.isDestroyed()) w.webContents.send('visitor', m); },
   },
-  /* B 这边：只用开放给伙伴的只读工具，用 B 自己的模型找，回答带依据 */
+  /* B 这边：只用开放给好友的只读工具，用 B 自己的模型找，回答带依据 */
   async search({ ask, peer, share }) {
     const c = await hub.catalog(), tools = peers.scopeTools(c.tools, share).map(t => ({ ...t, needsConfirm: () => false }));
     if (!tools.length) throw new Error('主人没有开放可以查的内容');
     if (!hasModel('assistant')) throw new Error('主人这边还没配置模型');
     const r = await agent.run({ question: ask, tools, maxSteps: 6, confirm: async () => false,
-      hint: `这是伙伴「${peer}」的精灵来串门找资料。只能用列出的工具；回答简明，写明依据的资料名称；查不到就直说查不到，不要编造，也不要透露工具范围以外的任何信息。`,
+      hint: `这是好友「${peer}」的精灵来串门找资料。只能用列出的工具；回答简明，写明依据的资料名称；查不到就直说查不到，不要编造，也不要透露工具范围以外的任何信息。`,
       chat: (sy, us) => chatJSON(sy, us, { task: 'assistant' }), call: (t, args) => hub.call(t.integ, t.tool, args) });
     if (!r.steps.some(s => s.kind === 'call' && s.ok)) {
       if (r.steps.some(s => s.kind === 'call')) throw new Error('知识库这次没连上');

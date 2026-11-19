@@ -283,7 +283,7 @@ async function pageReminders(body) {
       h('div', { class: 'muted' }, '到点精灵冒气泡；电脑睡着错过的，30 分钟内醒来会补提醒。')));
 }
 
-/* 串门：和同事的桌面结伴；让精灵去对方桌面找资料，再搬回来 */
+/* 串门：和同事的桌面加好友；让精灵去对方桌面找资料，再搬回来 */
 let peerRedraw = null;
 require('electron').ipcRenderer.on('peer:update', () => peerRedraw && peerRedraw());
 async function pagePeers(body) {
@@ -306,37 +306,40 @@ async function pagePeers(body) {
       h('div', { class: 'muted' }, t.status === 'done' ? (t.result?.status === 'ok' ? '搬回来了，结果在下面' : '空手回来：' + (t.result?.note || '')) : ST[t.status] || t.status)));
     for (const g of S.guests) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `👋 ${g.peer} 的精灵来了`), h('div', {}, g.ask),
       g.status === 'arrived' ? h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:decide', g.id, true) }, '帮它找'), h('button', { onclick: () => inv('peer:decide', g.id, false) }, '请它回去')) : h('div', { class: 'muted' }, '正在帮它找…')));
-    // 去串门
-    if (S.peers.length) {
-      pick = S.peers.some(p => p.id === pick) ? pick : S.peers[0].id;
-      const sel = h('select', { onchange: e => { pick = e.target.value; } }, ...S.peers.map(p => h('option', { value: p.id, selected: p.id === pick }, p.name)));
-      const ta = h('textarea', { rows: 2, placeholder: '想去找什么？例如：eIM 绑定失败的排查资料', oninput: e => { askDraft = e.target.value; } }); ta.value = askDraft;
+    // 去搬运：总是在最前面；还没好友时也显示，引导先加好友
+    {
+      const has = S.peers.length > 0, goMsg = h('div');
+      pick = S.peers.some(p => p.id === pick) ? pick : S.peers[0]?.id || null;
+      const sel = h('select', { disabled: !has, onchange: e => { pick = e.target.value; } }, ...(has ? S.peers.map(p => h('option', { value: p.id, selected: p.id === pick }, p.name)) : [h('option', {}, '还没有好友')]));
+      const ta = h('textarea', { rows: 3, placeholder: '要搬什么？例如：eIM 绑定失败的排查资料', oninput: e => { askDraft = e.target.value; } }); ta.value = askDraft;
       const busy = S.trips.some(t => t.status !== 'done');
-      cards.push(h('div', { class: 'card' }, h('h3', {}, '去串门'), h('div', { class: 'row' }, h('span', { class: 'muted' }, '去'), sel, h('span', { class: 'muted' }, '的桌面')), ta,
-        h('div', { class: 'row' }, h('button', { class: 'pri', disabled: busy, onclick: async () => { try { await inv('peer:visit', pick, ta.value); askDraft = ''; msg.replaceChildren(); draw(); } catch (e) { msg.replaceChildren(errBox(e)); } } }, busy ? '精灵出门中' : '出发'),
-          h('span', { class: 'muted' }, '对方同意后，精灵在对方开放的范围里找')), msg));
+      cards.unshift(h('div', { class: 'card go' }, h('h3', {}, '去好友那里搬'),
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, '找谁'), sel), ta,
+        h('div', { class: 'row' }, h('button', { class: 'pri', disabled: !has || busy, onclick: async () => { try { await inv('peer:visit', pick, ta.value); askDraft = ''; goMsg.replaceChildren(); draw(); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, busy ? '精灵出门中…' : '出发'),
+          h('span', { class: 'muted' }, has ? '好友同意后，精灵在他开放的范围里找' : '先在下面「加好友」')), goMsg));
     }
-    // 伙伴
-    cards.push(h('div', { class: 'card' }, h('h3', {}, `我的伙伴 ${S.peers.length}`),
-      ...(S.peers.length ? S.peers.map(p => h('div', { class: 'row peer' }, h('b', {}, p.name), h('span', { class: 'muted', title: '结伴时核对过的暗号' }, p.fp.join(' · ')),
+    // 好友
+    cards.push(h('div', { class: 'card' }, h('h3', {}, `我的好友 ${S.peers.length}`),
+      ...(S.peers.length ? S.peers.map(p => h('div', { class: 'row peer' }, h('b', {}, p.name), h('span', { class: 'muted', title: '加好友时核对过的暗号' }, p.fp.join(' · ')),
         h('select', { style: 'margin-left:auto', title: '它的精灵来串门时', onchange: e => inv('peer:set', p.id, { trust: e.target.value }) }, h('option', { value: 'ask', selected: p.trust !== 'trust' }, '每次问我'), h('option', { value: 'trust', selected: p.trust === 'trust' }, '完全信任')),
         h('button', { class: 'ghost', onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认解除'; return; } await inv('peer:remove', p.id); draw(); } }, '解除')))
-      : [h('div', { class: 'muted' }, '还没有伙伴：用下面的结伴码和同事结伴。')])));
-    // 结伴
-    const P = S.pending, pair = h('div', { class: 'card' }, h('h3', {}, '结伴'));
+      : [h('div', { class: 'muted' }, '还没有好友：用下面的好友码和同事加好友。')])));
+    // 加好友
+    const P = S.pending, pair = h('div', { class: 'card' }, h('h3', {}, '加好友'));
     if (P?.peer) pair.append(h('div', {}, `对方：${P.peer.name}`), h('div', { class: 'muted' }, '和对方核对暗号，两边一样才点确认：'), h('div', { class: 'fp' }, ...P.fp.map(w => h('span', {}, w))),
-      h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:confirm').then(draw) }, '暗号一致，结伴'), h('button', { onclick: () => inv('peer:cancel').then(draw) }, '不一致，取消')));
-    else if (P?.role === 'offer') pair.append(h('div', { class: 'muted' }, '把结伴码告诉同事，让他在「串门 › 结伴」里输入：'), h('div', { class: 'code' }, P.code.slice(0, 3) + ' ' + P.code.slice(3)),
+      h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:confirm').then(draw) }, '暗号一致，加好友'), h('button', { onclick: () => inv('peer:cancel').then(draw) }, '不一致，取消')));
+    else if (P?.role === 'offer') pair.append(h('div', { class: 'muted' }, '把好友码告诉同事，让他在「串门 › 加好友」里输入：'), h('div', { class: 'code' }, P.code.slice(0, 3) + ' ' + P.code.slice(3)),
       h('div', { class: 'muted' }, `10 分钟内有效 · 等对方输入…`), h('div', { class: 'row' }, h('button', { onclick: () => inv('peer:cancel').then(draw) }, '取消')));
     else {
-      const code = h('input', { placeholder: '输入同事给的 6 位结伴码', style: 'flex:1', inputmode: 'numeric' });
-      pair.append(h('div', { class: 'row' }, h('button', { class: 'pri', onclick: async () => { try { await inv('peer:offer'); draw(); } catch (e) { msg.replaceChildren(errBox(e)); } } }, '生成结伴码')),
+      const code = h('input', { placeholder: '输入同事给的 6 位好友码', style: 'flex:1', inputmode: 'numeric' });
+      pair.append(h('div', { class: 'row' }, h('button', { class: 'pri', onclick: async () => { try { await inv('peer:offer'); draw(); } catch (e) { msg.replaceChildren(errBox(e)); } } }, '生成好友码')),
         h('div', { class: 'row' }, code, h('button', { onclick: async () => { try { await inv('peer:claim', code.value); draw(); } catch (e) { msg.replaceChildren(errBox(e)); } } }, '加入')), msg);
     }
     cards.push(pair);
-    // 开放给伙伴的范围
+    { const go = cards.findIndex(c => c.classList?.contains('go')); if (go > 0) cards.unshift(cards.splice(go, 1)[0]); }
+    // 开放给好友的范围
     const share = { ...S.share };
-    cards.push(h('div', { class: 'card' }, h('h3', {}, '开放给伙伴'), h('div', { class: 'muted' }, '伙伴的精灵只能在这里找；邮件和聊天原文永远不开放。'),
+    cards.push(h('div', { class: 'card' }, h('h3', {}, '开放给好友'), h('div', { class: 'muted' }, '好友的精灵只能在这里找；邮件和聊天原文永远不开放。'),
       ...Object.entries(S.scopes).map(([k, label]) => h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: !!share[k], onchange: e => { share[k] = e.target.checked; inv('peer:config', { share }); } }), label)),
       h('div', { class: 'row' }, h('span', { class: 'muted' }, '我的名字'), h('input', { value: S.me.name, style: 'flex:1', onchange: e => inv('peer:config', { name: e.target.value }) }))));
     // 记录
@@ -349,7 +352,7 @@ async function pagePeers(body) {
 }
 
 const APPS = {
-  'app.peers': ['串门', pagePeers],
+  'app.peers': ['搬运', pagePeers],
   'app.reminders': ['提醒', pageReminders],
   'app.agent': ['助手', pageAgent],
   'app.update': ['升级', pageUpdate],
@@ -357,7 +360,7 @@ const APPS = {
   'mail.report': ['邮件汇报', summaryPage('mail')],
   'app.tasks': ['待办', pageTasks],
   'app.pool': ['我的需求池', pagePool],
-  'app.collect': ['搬运', pageCollect],
+  'app.collect': ['收集', pageCollect],
   'app.knowledge': ['问知识', pageKnowledge],
   'mail.stats': ['邮箱未读', pageMailStats],
 };

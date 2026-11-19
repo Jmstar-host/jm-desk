@@ -1,5 +1,5 @@
-/* 串门调度（主进程）：伙伴名单、结伴、收信循环、出门 / 接待访客。界面和动画由 main.mjs 注入的回调完成。
- * 数据：DATA/peers.json（伙伴名单，无密钥）、DATA/peer-trips.json（最近串门记录）；身份密钥由 getIdentity/setIdentity 加密保存。 */
+/* 串门调度（主进程）：好友名单、加好友、收信循环、出门 / 接待访客。界面和动画由 main.mjs 注入的回调完成。
+ * 数据：DATA/peers.json（好友名单，无密钥）、DATA/peer-trips.json（最近串门记录）；身份密钥由 getIdentity/setIdentity 加密保存。 */
 import crypto from 'node:crypto';
 import * as P from './peers.mjs';
 
@@ -27,14 +27,14 @@ export function createPeerHub(d) {
   const peerById = id => peers().find(p => p.id === id && p.status === 'paired');
   const send = (peer, obj) => cli().send(me(), peer, obj);
 
-  /* ---------- 结伴 ---------- */
+  /* ---------- 加好友 ---------- */
   async function offer() {
     const r = await cli().offer(me(), d.myName());
     pending = { role: 'offer', code: r.code, expires: Date.now() + r.expires_in * 1000 }; ensureLoop(); d.onUpdate(); return state();
   }
   async function claim(code) {
     const r = await cli().claim(me(), d.myName(), code);
-    pending = { role: 'claim', peer: { box: r.box, pub: r.pub, name: clip(r.name, 30) || '伙伴' } };
+    pending = { role: 'claim', peer: { box: r.box, pub: r.pub, name: clip(r.name, 30) || '好友' } };
     pending.fp = P.fingerprint(me().pub, r.pub); ensureLoop(); d.onUpdate(); return state();
   }
   async function confirm() {
@@ -47,7 +47,7 @@ export function createPeerHub(d) {
   }
   function cancelPair() { pending = null; d.onUpdate(); return state(); }
   function setPeer(id, patch) {
-    const list = peers(), p = list.find(x => x.id === id); if (!p) throw new Error('没有这个伙伴');
+    const list = peers(), p = list.find(x => x.id === id); if (!p) throw new Error('没有这个好友');
     if (patch.trust) p.trust = patch.trust === 'trust' ? 'trust' : 'ask';
     if (patch.name) p.alias = clip(patch.name, 20);
     savePeers(list); d.onUpdate(); return state();
@@ -60,7 +60,7 @@ export function createPeerHub(d) {
 
   /* ---------- 我出门 ---------- */
   async function visit(peerId, ask) {
-    const peer = peerById(peerId); if (!peer) throw new Error('先和对方结伴');
+    const peer = peerById(peerId); if (!peer) throw new Error('先和对方加好友');
     const q = clip(String(ask || '').trim(), 400); if (!q) throw new Error('说说要去找什么');
     if ([...trips.values()].some(t => t.status !== 'done')) throw new Error('精灵已经出门了，等它回来再去');
     const id = rid();
@@ -124,7 +124,7 @@ export function createPeerHub(d) {
   function handle(items) {
     for (const it of items) {
       if (it.kind === 'pair-claimed') {
-        if (pending?.role === 'offer' && !pending.peer) { pending.peer = { box: it.from, pub: it.pub, name: it.name || '伙伴' }; pending.fp = P.fingerprint(me().pub, it.pub); d.onUpdate(); }
+        if (pending?.role === 'offer' && !pending.peer) { pending.peer = { box: it.from, pub: it.pub, name: it.name || '好友' }; pending.fp = P.fingerprint(me().pub, it.pub); d.onUpdate(); }
         continue;
       }
       const { peer, msg: m } = it;
@@ -149,7 +149,7 @@ export function createPeerHub(d) {
     })();
   }
 
-  const name = p => p.alias || p.name || '伙伴';
+  const name = p => p.alias || p.name || '好友';
   function state() {
     return {
       relay: d.relay(), me: { name: d.myName(), ready: !!d.getIdentity()?.pub }, share: d.settings().peers?.share || { knowledge: true },

@@ -1,8 +1,8 @@
-/* 串门：两台 JM Desk 结成伙伴，A 的精灵飞到 B 的桌面，在 B 开放的范围里找资料，再搬回来。
+/* 串门：两台 JM Desk 结成好友，A 的精灵飞到 B 的桌面，在 B 开放的范围里找资料，再搬回来。
  *
  * 身份：每台桌面一对 X25519 密钥 + 一把信箱钥匙 boxKey（信箱号 box = sha256(boxKey)），由主进程加密保存。
- * 结伴：A 向中转申请 6 位结伴码 → B 输入 → 双方拿到对方公钥和信箱号 → 各自算出共同密钥；
- *       两边显示同样的 4 个「暗号」，人工核对一致后才算结伴成功（防中转偷换公钥）。
+ * 加好友：A 向中转申请 6 位好友码 → B 输入 → 双方拿到对方公钥和信箱号 → 各自算出共同密钥；
+ *       两边显示同样的 4 个「暗号」，人工核对一致后才算加好友成功（防中转偷换公钥）。
  * 消息：AES-256-GCM 端到端加密，附带发信方信箱号作为附加数据；中转只看到密文。
  * 消息类型（加密后的 JSON）：hello / visit / visit-ack / visit-result / visit-denied / bye */
 import crypto from 'node:crypto';
@@ -49,7 +49,7 @@ export function createClient({ relay, fetchImpl = fetch }) {
     try { r = await fetchImpl(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) }); }
     catch (e) { throw Object.assign(new Error(`连不上中转：${e.name === 'TimeoutError' ? '超时' : e.message}`), { code: 'relay_unreachable' }); }
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw Object.assign(new Error({ code_not_found: '结伴码不对或已过期', rate_limited: '操作太频繁，稍后再试', too_large: '内容太大' }[j.error] || `中转返回 ${r.status}`), { code: j.error || 'relay_error', status: r.status });
+    if (!r.ok) throw Object.assign(new Error({ code_not_found: '好友码不对或已过期', rate_limited: '操作太频繁，稍后再试', too_large: '内容太大' }[j.error] || `中转返回 ${r.status}`), { code: j.error || 'relay_error', status: r.status });
     return j;
   }
   return {
@@ -61,8 +61,8 @@ export function createClient({ relay, fetchImpl = fetch }) {
   };
 }
 
-/* 解开收到的一批信：pair-claimed 是中转投来的明文（只有公钥和名字），其余都要用对应伙伴的共同密钥解密；
- * 解不开的（不是伙伴、被篡改）直接丢弃 */
+/* 解开收到的一批信：pair-claimed 是中转投来的明文（只有公钥和名字），其余都要用对应好友的共同密钥解密；
+ * 解不开的（不是好友、被篡改）直接丢弃 */
 export function unpack(me, messages, peers, pending = []) {
   const out = [];
   for (const m of messages || []) {

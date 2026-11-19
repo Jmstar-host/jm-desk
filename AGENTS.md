@@ -32,8 +32,8 @@
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
 | `app.work` `app.clues` | 工作台、线索（大窗口） | 命令 |
-| `app.summary` `app.tasks` `app.pool` `app.collect` `app.knowledge` `app.agent` | 汇总 待办 需求池 搬运 问知识 助手 | 面板 |
-| `app.peers` | 串门 | 面板 |
+| `app.summary` `app.tasks` `app.pool` `app.collect` `app.knowledge` `app.agent` | 汇总 待办 需求池 收集 问知识 助手 | 面板 |
+| `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
 | `app.reminders` `app.character` `app.settings` `app.connect` `app.integrations` `app.update` | 提醒 形象 设置 平台 接入 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` `mail.report` | 邮箱 写邮件 未读 邮件汇报 | 邮箱（调起本机邮件客户端） |
 | `toggle.roam` `place.corner` | 自由飞 右下角 | 开关 / 位置 |
@@ -68,16 +68,16 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - 每条每天最多提醒一次。电脑睡着错过的，30 分钟内醒来会补提醒。已提醒的记录在 `DATA/reminders-state.json`。
 - 只在「待办」页顶部显示今天的安排。
 
-## 4.5 串门（两台桌面互访）
+## 4.5 搬运（两台桌面互访，代码里叫 peers / 串门）
 
 - **代码分工**：
   - `relay/server.mjs`：中转，只转发密文。部署见 `docs/RELAY.md`。
   - `app/main/peers.mjs`：身份、加密和中转客户端，纯函数，有测试。
-  - `app/main/peerhub.mjs`：结伴、收信循环、出门与接待。
+  - `app/main/peerhub.mjs`：加好友、收信循环、出门与接待。
   - `main.mjs`：负责接窗口、动画和本机搜索。
-  - 界面：面板「串门」（`apps.js` 的 `pagePeers`）、访客窗口 `renderer/visitor.*`、精灵出门和回来的动画（`sprite.js` 的 `tripLeave` / `tripReturn`）。
-- **身份**：每台桌面一对 X25519 密钥，加上一把信箱钥匙（信箱号 = sha256(钥匙)），用 `safeStorage` 加密存在 `secrets.json` 的 `peer` 下。伙伴名单存在 `DATA/peers.json`，记录存在 `DATA/peer-trips.json`。
-- **结伴**：A 申请 6 位结伴码（10 分钟内有效，只能用一次），B 认领。双方用 ECDH 算出共同密钥，界面显示 4 个暗号供人工核对，防止中转偷换公钥。消息用 AES-256-GCM 加密，并以发信方信箱号作为附加数据。
+  - 界面：面板「搬运」（`apps.js` 的 `pagePeers`，「工作」组）、访客窗口 `renderer/visitor.*`、精灵出门和回来的动画（`sprite.js` 的 `tripLeave` / `tripReturn`）。
+- **身份**：每台桌面一对 X25519 密钥，加上一把信箱钥匙（信箱号 = sha256(钥匙)），用 `safeStorage` 加密存在 `secrets.json` 的 `peer` 下。好友名单存在 `DATA/peers.json`，记录存在 `DATA/peer-trips.json`。
+- **加好友**：A 申请 6 位好友码（10 分钟内有效，只能用一次），B 认领。双方用 ECDH 算出共同密钥，界面显示 4 个暗号供人工核对，防止中转偷换公钥。消息用 AES-256-GCM 加密，并以发信方信箱号作为附加数据。
 - **访问流程**：
   1. A 发出 `visit`。
   2. B 回 `visit-ack`，状态为 `arrived` 或 `searching`。
@@ -117,7 +117,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 ## 7. 需求管理平台（可选）
 
 - **关联账号**用设备授权（参照 RFC 8628，`src/mp2link.mjs`），流程见 `docs/PLATFORM-CONNECT.md`：助手发起 → 用户在平台网页上点「允许」→ 助手领取一次凭据（存为 0600 文件）。
-- **搬运**：把线索送进平台的个人需求池（`POST /api/meeting-intake/sources`，契约见 `docs/INTAKE-CONTRACT.md`）。候选需求只能由人在平台上确认。
+- **收集**（面板「收集」，「设置」组）：把线索送进平台的个人需求池（`POST /api/meeting-intake/sources`，契约见 `docs/INTAKE-CONTRACT.md`）。候选需求只能由人在平台上确认。
 
 ## 8. 构建、发版、企业预置
 
@@ -146,7 +146,7 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
 ```
 app/main/main.mjs          主进程：窗口、托盘、IPC、面板、升级、提醒调度、内置工具
 app/main/catalog.mjs       动作目录、默认布局、布局校验
-app/main/services.mjs      汇总、待办、需求池、线索、搬运（调用 src/）
+app/main/services.mjs      汇总、待办、需求池、线索、收集（调用 src/）
 app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
@@ -180,8 +180,8 @@ test/                      node --test，全部用假服务和虚构样例
 **已完成**：
 - 精灵与界面：独立桌面应用（mac / win）、原创形象 Lumi 与形象包、形象库、两圈气泡与 AI 改布局、统一视觉与右键卡片。
 - 工作：线索、待办、需求池与工作体系，汇总与 AI 整理。
-- 接入与 AI：员工提醒、平台 API / MCP 接入与助手、问知识、多模型与 token 政策、串门（结伴、端到端加密中转、访客动画）。
-- 平台与发布：需求管理平台关联与搬运、应用内升级、企业预置接入。
+- 接入与 AI：员工提醒、平台 API / MCP 接入与助手、问知识、多模型与 token 政策、搬运（加好友、端到端加密中转、精灵登门动画）。
+- 平台与发布：需求管理平台关联与收集、应用内升级、企业预置接入。
 
 **规划中（未实现，不要当成已有能力来写文档或调用）**：
 - 自动加载 `DATA/extensions/connector|app|knowledge/` 下的扩展（目前只支持形象包）。

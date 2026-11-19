@@ -13,13 +13,13 @@ export const CATALOG = {
   'app.tasks':      { kind: 'app', icon: 'check', label: '待办', tip: '从线索整理出的跟进动作：需求跟进和日常', count: 'tasks' },
   'app.pool':       { kind: 'app', icon: 'box', label: '需求池', tip: '按项目归集的需求：每条是项目里要完成的一件完整的事' },
   'app.clues':      { kind: 'cmd', icon: 'mail', label: '线索', tip: '收集到的邮件、飞书、纪要原文，以及从中整理出的工作' },
-  'app.collect':    { kind: 'app', icon: 'inbox', label: '搬运', tip: '收集信息源，送入平台' },
+  'app.collect':    { kind: 'app', icon: 'inbox', label: '收集', tip: '收集邮件、飞书、纪要原文，送进需求管理平台' },
   'app.knowledge':  { kind: 'app', icon: 'magic', label: '问知识', tip: '查询已接入的知识库' },
   'app.connect':    { kind: 'app', icon: 'pin', label: '平台', tip: '接入 MP2 等业务平台' },
   'app.agent':      { kind: 'app', icon: 'magic', label: '助手', tip: '让 AI 调用已接入的平台 API 和 MCP 办事' },
   'app.integrations': { kind: 'app', icon: 'portal', label: '接入', tip: '接入平台 API 和 MCP 服务器' },
   'app.settings':   { kind: 'app', icon: 'sliders', label: '设置', tip: '形象、气泡、信息源、模型' },
-  'app.peers':      { kind: 'app', icon: 'portal', label: '串门', tip: '和同事的桌面结伴，让精灵去对方那里找资料、搬回来' },
+  'app.peers':      { kind: 'app', icon: 'portal', label: '搬运', tip: '选一个好友、写要搬什么，精灵飞去好友的桌面找回来' },
   'app.reminders':  { kind: 'app', icon: 'bell', label: '提醒', tip: '订饭、吃饭、下班提醒，时间可以自己设' },
   'app.character':  { kind: 'app', icon: 'smile', label: '形象', tip: '更换或定制精灵形象' },
   'app.update':     { kind: 'app', icon: 'inbox', label: '升级', tip: '检查并安装新版本' },
@@ -35,10 +35,10 @@ export const ICONS = ['magic', 'mail', 'sliders', 'portal', 'burst', 'orbit', 'd
 export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
-    { id: 'play', label: '互动', icon: 'magic', color: ['#f472b6', '#c084fc'], tip: '放技能、翻跟头、撒爱心', items: ['app.peers', 'skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
-    { id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], tip: '汇总、待办、需求池、知识', items: ['app.work', 'app.agent', 'app.summary', 'app.clues', 'app.tasks', 'app.pool', 'app.collect', 'app.knowledge'] },
+    { id: 'play', label: '互动', icon: 'magic', color: ['#f472b6', '#c084fc'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
+    { id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], tip: '汇总、待办、需求池、知识', items: ['app.work', 'app.agent', 'app.summary', 'app.clues', 'app.tasks', 'app.pool', 'app.peers', 'app.knowledge'] },
     { id: 'mail', label: '邮箱', icon: 'mail', color: ['#38bdf8', '#818cf8'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats', 'mail.report'] },
-    { id: 'more', label: '设置', icon: 'sliders', color: ['#2dd4bf', '#a78bfa'], tip: '形象、气泡、平台接入', items: ['app.reminders', 'app.character', 'app.settings', 'app.connect', 'app.integrations', 'toggle.roam', 'place.corner'] },
+    { id: 'more', label: '设置', icon: 'sliders', color: ['#2dd4bf', '#a78bfa'], tip: '形象、气泡、平台接入', items: ['app.reminders', 'app.character', 'app.settings', 'app.connect', 'app.integrations', 'app.collect', 'toggle.roam', 'place.corner'] },
   ],
 };
 
