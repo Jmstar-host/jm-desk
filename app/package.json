@@ -17,7 +17,10 @@
     "release": "node scripts/release.mjs",
     "set-update-feed": "node scripts/set-update-feed.mjs",
     "postdist:mac": "node scripts/apply-preset.mjs --reset",
-    "postdist:win": "node scripts/apply-preset.mjs --reset"
+    "postdist:win": "node scripts/apply-preset.mjs --reset",
+    "predist:mac-x64": "node scripts/sync-core.mjs && node scripts/apply-preset.mjs",
+    "dist:mac-x64": "electron-builder --mac dmg --x64",
+    "postdist:mac-x64": "node scripts/apply-preset.mjs --reset"
   },
   "dependencies": {
     "@electron/remote": "^2.1.2"

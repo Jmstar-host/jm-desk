@@ -124,7 +124,8 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 ```bash
 cd app && npm install && npm start        # 开发运行（会先 sync-core）
 npm test                                  # 在仓库根目录跑测试，全部用本机假服务，不连真实平台
-cd app && npm run dist:mac                # macOS arm64 dmg，产物在仓库根目录 dist/
+cd app && npm run dist:mac                # macOS arm64 dmg（Apple 芯片），产物在仓库根目录 dist/
+cd app && npm run dist:mac-x64            # macOS x64 dmg（Intel 芯片），产物文件名不带架构后缀，发布时改名为 -x64.dmg
 cd app && npm run dist:win                # Windows x64 NSIS 安装包
 ```
 

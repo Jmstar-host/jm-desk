@@ -10,7 +10,8 @@
 
 | 系统 | 安装包 | 第一次打开 |
 |---|---|---|
-| macOS（Apple 芯片） | `JM Desk-<版本>-arm64.dmg` | 拖进「应用程序」。安装包没有签名，第一次要**右键 → 打开**。 |
+| macOS（Apple 芯片，M1–M4） | `JM Desk-<版本>-arm64.dmg` | 拖进「应用程序」。安装包没有签名，第一次要**右键 → 打开**。 |
+| macOS（Intel 芯片） | `JM Desk-<版本>-x64.dmg` | 同上。不确定是哪种芯片：左上角  → 关于本机，看「芯片」或「处理器」。 |
 | Windows（x64） | `JM Desk Setup <版本>.exe` | 运行安装程序。如果出现 SmartScreen 提示，点「更多信息 → 仍要运行」。 |
 
 装好后，屏幕右下角会出现精灵「星灵 Lumi」。它不占 Dock，也不占任务栏；菜单栏（Windows 是托盘）里有它的小图标。
@@ -103,7 +104,8 @@
 ```bash
 cd app && npm install && npm start      # 开发运行
 npm test                                # 在仓库根目录运行测试
-cd app && npm run dist:mac              # 打 macOS 安装包（arm64 dmg）
+cd app && npm run dist:mac              # 打 macOS 安装包（Apple 芯片，arm64 dmg）
+cd app && npm run dist:mac-x64          # 打 macOS 安装包（Intel 芯片，x64 dmg）
 cd app && npm run dist:win              # 打 Windows 安装包（x64）
 ```
 
