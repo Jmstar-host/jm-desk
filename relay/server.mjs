@@ -8,7 +8,8 @@
  *   POST /v1/send        { to, from, data }             → { ok }                 data 是密文（base64），不超过 256 KB
  *   POST /v1/poll        { key, wait }                  → { messages: [...] }    key 的 sha256 就是信箱号；最多等 wait 秒（≤25）
  * 信箱号 box = sha256(key)：只有持有 key 的一方能取信，别人只能往里投。
- * 可选：DL_DIR=<目录> [DL_KEY=<口令>] 时，GET /dl/[<口令>/] 是安装包下载页（只读，只列 .dmg/.exe/.zip）。 */
+ * 可选：DL_DIR=<目录> [DL_KEY=<口令>] [DL_REPO=<开源仓库 https 地址>] 时，GET /dl/[<口令>/] 是安装包下载页
+ * （只读，只列 .dmg/.exe/.zip；按「安装包 / 源码（*-source.zip）/ 完整包」分区显示）。 */
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -26,7 +27,7 @@ const DL_FILE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,120}\.(dmg|exe|zip)$/;
 function listDl(dir) { try { return fs.readdirSync(dir).filter(f => DL_FILE.test(f) && fs.statSync(path.join(dir, f)).isFile()).sort(); } catch { return []; } }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '' } = {}) {
+export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '', dlRepo = '' } = {}) {
   function download(req, res, send) {
     let rest;
     try { rest = decodeURIComponent(req.url.split('?')[0].slice(3)); } catch { return send(404, { error: 'not_found' }); }
@@ -34,9 +35,14 @@ export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '' }
     const name = rest.replace(/^\/+/, '');
     if (!name) { // 下载页
       const base = dlKey ? `${encodeURIComponent(dlKey)}/` : '';
-      const rows = listDl(dlDir).map(f => { const mb = (fs.statSync(path.join(dlDir, f)).size / 1048576).toFixed(1); return `<li><a href="${base}${encodeURIComponent(f)}">${esc(f)}</a> <small>${mb} MB</small></li>`; }).join('');
+      const files = listDl(dlDir), mb = f => (fs.statSync(path.join(dlDir, f)).size / 1048576).toFixed(1);
+      const hint = f => /arm64\.dmg$/.test(f) ? 'Mac · Apple 芯片（M1–M4）' : /x64\.dmg$/.test(f) ? 'Mac · Intel 芯片' : /\.dmg$/.test(f) ? 'Mac' : /\.exe$/.test(f) ? 'Windows' : /source\.zip$/.test(f) ? '源码，MIT 协议，可以随意修改和再分发' : '完整包：全部安装包 + 说明 + 源码';
+      const li = f => `<li><a href="${base}${encodeURIComponent(f)}">${esc(f)}</a> <small>${esc(hint(f))} · ${mb(f)} MB</small></li>`;
+      const sec = (title, list, note = '') => list.length || note ? `<h3>${title}</h3><ul>${list.map(li).join('')}${note}</ul>` : '';
+      const apps = files.filter(f => /\.(dmg|exe)$/.test(f)), src = files.filter(f => /source\.zip$/.test(f)), full = files.filter(f => /\.zip$/.test(f) && !src.includes(f));
+      const repo = /^https:\/\/[^\s"<>]+$/.test(dlRepo) ? `<li><a href="${esc(dlRepo)}">${esc(dlRepo)}</a> <small>开源仓库（MIT）</small></li>` : '';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
-      return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>JM Desk 下载</title><style>body{font:15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:560px;margin:48px auto;padding:0 16px;color:#2e1f40}a{color:#7c3aed}li{margin:10px 0}small{color:#888}</style><h2>JM Desk 下载</h2><ul>${rows || '<li>暂无文件</li>'}</ul><p><small>Mac 选 .dmg（第一次打开要右键 → 打开），Windows 选 .exe；.zip 是完整包（含两个安装包和说明）。</small></p>`);
+      return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>JM Desk 下载</title><style>body{font:15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:600px;margin:48px auto;padding:0 16px;color:#2e1f40}a{color:#7c3aed}li{margin:10px 0}small{color:#888}h3{margin:28px 0 4px;font-size:15px}</style><h2>JM Desk 下载</h2>${sec('安装包', apps)}${sec('源码（开源）', src, repo)}${sec('完整包', full)}${files.length ? '' : '<p>暂无文件</p>'}<p><small>Mac 第一次打开要在「应用程序」里右键 → 打开（安装包没有签名）。不知道是哪种芯片：左上角苹果菜单 → 关于本机。</small></p>`);
     }
     if (!DL_FILE.test(name) || !listDl(dlDir).includes(name)) return send(404, { error: 'not_found' });
     const file = path.join(dlDir, name), st = fs.statSync(file);
@@ -110,5 +116,5 @@ export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '' }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT || 8787), host = process.env.HOST || '127.0.0.1';
-  createRelay({ dlDir: process.env.DL_DIR || null, dlKey: process.env.DL_KEY || '' }).listen(port, host, () => console.log(`jm-desk relay on http://${host}:${port}`));
+  createRelay({ dlDir: process.env.DL_DIR || null, dlKey: process.env.DL_KEY || '', dlRepo: process.env.DL_REPO || '' }).listen(port, host, () => console.log(`jm-desk relay on http://${host}:${port}`));
 }

@@ -53,15 +53,16 @@ test('中转地址只接受 https 或本机；访客范围只给只读工具，�
 test('下载页：只在设置了目录时开启；口令不对打不开；只给目录里的安装包，不能跳出目录', async () => {
   const { default: fs } = await import('node:fs'), { default: os } = await import('node:os'), { default: path } = await import('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmdl-'));
-  fs.writeFileSync(path.join(dir, 'JM Desk-9.9.9-arm64.dmg'), 'dmg-bytes'); fs.writeFileSync(path.join(dir, 'secret.json'), '{}');
+  fs.writeFileSync(path.join(dir, 'JM Desk-9.9.9-arm64.dmg'), 'dmg-bytes'); fs.writeFileSync(path.join(dir, 'secret.json'), '{}'); fs.writeFileSync(path.join(dir, 'jm-desk-9.9.9-source.zip'), 'src');
   const start2 = opts => new Promise(r => { const s = createRelay(opts); s.listen(0, '127.0.0.1', () => r({ url: `http://127.0.0.1:${s.address().port}`, close: () => { s.closeAllConnections(); s.close(); } })); });
-  const off = await start2({}), on = await start2({ dlDir: dir, dlKey: 'k1' });
+  const off = await start2({}), on = await start2({ dlDir: dir, dlKey: 'k1', dlRepo: 'https://example.com/repo' });
   try {
     assert.equal((await fetch(off.url + '/dl/')).status, 405, '没设目录时不开下载');
     assert.equal((await fetch(on.url + '/dl/')).status, 404, '没带口令');
     assert.equal((await fetch(on.url + '/dl/wrong/')).status, 404);
     const page = await (await fetch(on.url + '/dl/k1/')).text();
     assert.match(page, /JM%20Desk-9\.9\.9-arm64\.dmg/); assert.doesNotMatch(page, /secret\.json/);
+    assert.match(page, /<h3>安装包<\/h3>.*Apple 芯片/s); assert.match(page, /<h3>源码（开源）<\/h3>.*jm-desk-9\.9\.9-source\.zip.*MIT.*https:\/\/example\.com\/repo/s);
     const r = await fetch(on.url + '/dl/k1/' + encodeURIComponent('JM Desk-9.9.9-arm64.dmg'));
     assert.equal(r.status, 200); assert.equal(await r.text(), 'dmg-bytes'); assert.match(r.headers.get('content-disposition'), /attachment/);
     for (const bad of ['secret.json', '..%2Fsecret.json', '%2E%2E/%2E%2E/etc/passwd.zip']) assert.ok([404, 405].includes((await fetch(on.url + '/dl/k1/' + bad)).status), bad);
