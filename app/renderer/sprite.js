@@ -351,10 +351,8 @@ $('stage').addEventListener('contextmenu', e => {
   sendOv({ type: 'ctx', x: e.screenX, y: e.screenY, theme: info.theme, name: info.name, sub: `JM Desk ${info.version || ''}`.trim(), ...hudGeo(),
     items: [
       { id: 'roam', icon: 'wing', label: '自由活动', toggle: roamOn },
-      { id: 'app.work', icon: 'chart', label: '工作台' },
-      { id: 'app.agent', icon: 'magic', label: '助手（对话）' },
+      { id: 'app.desk', icon: 'chart', label: '打开 JM Desk' },
       { id: 'app.reminders', icon: 'bell', label: '提醒' },
-      { id: 'app.character', icon: 'smile', label: '换形象' },
       { id: 'app.settings', icon: 'sliders', label: '设置' },
       { id: 'app.update', icon: 'inbox', label: '检查更新' },
       { id: 'corner', icon: 'corner', label: '回到右下角' },

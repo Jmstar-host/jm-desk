@@ -5,10 +5,6 @@ const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag);
 let S = null, page = location.hash.slice(1) || 'app.settings', tab = null;
 const PAGES = {
   'app.settings': { title: '设置', tabs: [['character', '形象'], ['layout', '气泡'], ['account', '需求管理平台'], ['integrations', '接入'], ['model', '模型'], ['about', '关于']] },
-  'app.integrations': { title: '接入平台与 MCP', tabs: [['integrations', '接入']] },
-  'app.connect': { title: '关联需求管理平台账号', tabs: [['account', '需求管理平台']] },
-  'app.character': { title: '形象', tabs: [['character', '形象']] },
-  'app.models': { title: '模型', tabs: [['model', '模型']] },
 };
 /* 打开 / 收起：主进程先发 panel:go（带页面、精灵在哪一侧、主色），面板换好内容、摆好起始姿态后回 panel:ready，主进程再显示，
  * 这样不会先闪一下上一页的内容；显示后泡泡从精灵那一侧弹出来。 */
@@ -24,6 +20,7 @@ function applyGo(g) {
   $('#sub').textContent = g.sub || ''; delete $('#sub').dataset.base;
   ipcRenderer.invoke('panel:pin-state').then(showPinned);
   if (g.page && g.page !== page) { page = g.page; tab = null; $('#body').replaceChildren(h('div', { class: 'loading' }, h('i'), h('i'), h('i'))); $('#tabs').replaceChildren(); }
+  if (g.tab && PAGES[page]?.tabs.some(([id]) => id === g.tab)) tab = g.tab; // 直接打开设置里的某一页（接入、模型、需求管理平台、形象）
   setTimeout(() => { ipcRenderer.send('panel:ready'); setTimeout(() => body0.classList.remove('enter'), 30); }, 16);
   render();
 }

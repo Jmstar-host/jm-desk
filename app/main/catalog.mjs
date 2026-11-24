@@ -8,26 +8,18 @@ export const CATALOG = {
   'skill.sparkle':  { kind: 'skill', icon: 'heart', label: '爱心', tip: '撒一把爱心' },
   'skill.loop':     { kind: 'skill', icon: 'loop', label: '跟头', tip: '翻个跟头' },
   'skill.wave':     { kind: 'skill', icon: 'smile', label: '挥手', tip: '打个招呼' },
-  'app.work':       { kind: 'cmd', icon: 'chart', label: '工作台', tip: '专项 › 项目 › 需求 › 待办，按产品线分层管理' },
-  'app.summary':    { kind: 'app', icon: 'doc', label: '汇总', tip: '邮件、飞书、会议的综合汇总' },
-  'app.tasks':      { kind: 'app', icon: 'check', label: '待办', tip: '从线索整理出的跟进动作：需求跟进和日常', count: 'tasks' },
-  'app.pool':       { kind: 'app', icon: 'box', label: '需求池', tip: '按项目归集的需求：每条是项目里要完成的一件完整的事' },
-  'app.clues':      { kind: 'cmd', icon: 'mail', label: '线索', tip: '收集到的邮件、飞书、纪要原文，以及从中整理出的工作' },
-  'app.collect':    { kind: 'app', icon: 'inbox', label: '收集', tip: '收集邮件、飞书、纪要原文，送进需求管理平台' },
-  'app.knowledge':  { kind: 'app', icon: 'magic', label: '问知识', tip: '查询已接入的知识库' },
-  'app.connect':    { kind: 'app', icon: 'pin', label: '平台', tip: '接入 MP2 等业务平台' },
-  'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '对话工作台：和 AI 多轮对话，让它调用已接入的平台 API 和 MCP 办事' },
-  'app.integrations': { kind: 'app', icon: 'portal', label: '接入', tip: '接入平台 API 和 MCP 服务器' },
-  'app.settings':   { kind: 'app', icon: 'sliders', label: '设置', tip: '形象、气泡、信息源、模型' },
-  'app.models':     { kind: 'app', icon: 'sliders', label: '模型', tip: '模型来源、按任务的顺序、每日额度' },
-  'app.peers':      { kind: 'app', icon: 'portal', label: '搬运', tip: '选一个好友、写要搬什么，精灵飞去好友的桌面找回来' },
+  /* 主窗口（1.3.0 起对话、工作台、线索合进一个窗口，左边切换） */
+  'app.desk':       { kind: 'cmd', icon: 'chart', label: '主窗口', tip: '助手、工作台、线索都在这个窗口里' },
+  'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '和 AI 多轮对话：查资料、问知识库、调用平台办事、交给本机执行者' },
+  'app.work':       { kind: 'cmd', icon: 'chart', label: '工作台', tip: '专项 › 项目 › 需求 › 待办，汇总线索、勾掉待办、对齐需求管理平台', count: 'tasks' },
+  'app.clues':      { kind: 'cmd', icon: 'inbox', label: '线索', tip: '收到的邮件、飞书、纪要原文，信息源和搬运到需求管理平台' },
+  'app.peers':      { kind: 'app', icon: 'portal', label: '搬运', tip: '选一个好友、选好范围，精灵飞去好友的桌面找回来' },
+  'app.settings':   { kind: 'app', icon: 'sliders', label: '设置', tip: '形象、气泡、需求管理平台、接入、模型' },
   'app.reminders':  { kind: 'app', icon: 'bell', label: '提醒', tip: '订饭、吃饭、下班提醒，时间可以自己设' },
-  'app.character':  { kind: 'app', icon: 'smile', label: '形象', tip: '更换或定制精灵形象' },
   'app.update':     { kind: 'app', icon: 'inbox', label: '升级', tip: '检查并安装新版本' },
   'mail.open':      { kind: 'cmd', icon: 'mail', label: '邮箱', tip: '打开邮件客户端' },
   'mail.compose':   { kind: 'cmd', icon: 'quill', label: '写邮件', tip: '新建一封邮件' },
   'mail.stats':     { kind: 'app', icon: 'chart', label: '未读', tip: '未读统计', count: 'unread' },
-  'mail.report':    { kind: 'app', icon: 'doc', label: '邮件汇报', tip: '只整理邮件的未读和交期' },
   'toggle.roam':    { kind: 'toggle', icon: 'wing', label: '自由飞', tip: '开关自由活动', stay: true },
   'place.corner':   { kind: 'skill', icon: 'corner', label: '右下角', tip: '回到屏幕右下角' },
 };
@@ -37,11 +29,36 @@ export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
     { id: 'play', label: '互动', icon: 'magic', color: ['#f472b6', '#c084fc'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
-    { id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], tip: '汇总、待办、需求池、知识', items: ['app.work', 'app.agent', 'app.summary', 'app.clues', 'app.tasks', 'app.pool', 'app.peers', 'app.knowledge'] },
-    { id: 'mail', label: '邮箱', icon: 'mail', color: ['#38bdf8', '#818cf8'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats', 'mail.report'] },
-    { id: 'more', label: '设置', icon: 'sliders', color: ['#2dd4bf', '#a78bfa'], tip: '形象、气泡、平台接入', items: ['app.reminders', 'app.character', 'app.settings', 'app.connect', 'app.integrations', 'app.collect', 'toggle.roam', 'place.corner'] },
+    { id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], tip: '助手、工作台、线索、搬运', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
+    { id: 'mail', label: '邮箱', icon: 'mail', color: ['#38bdf8', '#818cf8'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
+    { id: 'more', label: '设置', icon: 'sliders', color: ['#2dd4bf', '#a78bfa'], tip: '设置、提醒、精灵位置', items: ['app.settings', 'app.reminders', 'toggle.roam', 'place.corner'] },
   ],
 };
+
+/* 1.3.0 去掉的入口 → 现在去哪里。旧的 layout.json、精灵气泡、外部 AI、旧版本代码里的链接都按这里转过去：
+ *   [动作 id, 设置页的分页]。待办 / 需求池 / 汇总并进工作台，问知识并进助手，收集并进线索，平台 / 接入 / 模型 / 形象是设置里的分页。 */
+export const MOVED = {
+  'app.summary': ['app.work'], 'app.tasks': ['app.work'], 'app.pool': ['app.work'], 'mail.report': ['app.work'],
+  'app.knowledge': ['app.agent'], 'app.collect': ['app.clues'],
+  'app.connect': ['app.settings', 'account'], 'app.integrations': ['app.settings', 'integrations'], 'app.models': ['app.settings', 'model'], 'app.character': ['app.settings', 'character'],
+};
+/* 旧布局里去掉的入口换成新的，重复的只留一个；全空的分组去掉。返回 { layout, changed } */
+export function migrateLayout(l) {
+  if (!l || !Array.isArray(l.groups)) return { layout: l, changed: false };
+  let changed = false; const used = new Set();
+  const groups = l.groups.map(g => {
+    const items = [];
+    for (const x of Array.isArray(g.items) ? g.items : []) {
+      const to = MOVED[x] ? MOVED[x][0] : x;
+      if (to !== x) changed = true;
+      if (used.has(to)) { changed = true; continue; }
+      used.add(to); items.push(to);
+    }
+    if (g.id === 'work' && /汇总|待办|需求池|知识/.test(g.tip || '')) { changed = true; return { ...g, tip: '助手、工作台、线索、搬运', items }; }
+    return { ...g, items };
+  }).filter(g => g.items.length || (changed = true, false));
+  return { layout: { ...l, groups }, changed };
+}
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 /* 校验布局：只接受目录里存在的动作；返回 { ok, layout, errors } */

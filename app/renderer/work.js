@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== undefined && v !== false && v !== null) e.setAttribute(k, v === true ? '' : v); } kids.flat().filter(x => x != null && x !== false).forEach(k => e.append(k.nodeType ? k : document.createTextNode(k))); return e; };
 const qs = new URLSearchParams(location.search);
 for (const k of ['a1', 'a2']) if (/^#[0-9a-f]{6}$/i.test(qs.get(k) || '')) document.documentElement.style.setProperty('--' + k, qs.get(k));
-if (process.platform !== 'darwin') document.body.classList.add('win');
+if (process.platform !== 'darwin' || qs.get('embedded')) document.body.classList.add('win'); // 嵌在主窗口里时左边没有红绿灯，不用留空
 const call = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
 const when = t => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
 const STATUS = { open: '进行中', done: '已完成', dropped: '不做了' };
@@ -31,6 +31,8 @@ async function load() {
 function match(w) { const k = f.q.trim().toLowerCase(); return !k || (w.title + (w.summary || '')).toLowerCase().includes(k); }
 function rowOf(w, depth) {
   return h('div', { class: `row ${w.id === current ? 'on' : ''} ${w.status !== 'open' ? 'done' : ''}`, 'data-id': w.id, style: `padding-left:${10 + depth * 18}px`, onclick: () => show(w.id) },
+    w.level === 'todo' ? h('input', { type: 'checkbox', class: 'ck', title: w.status === 'done' ? '重新打开' : '标为完成', checked: w.status === 'done', onclick: e => e.stopPropagation(),
+      onchange: async e => { try { await call('svc:task-set', w.id, e.target.checked ? 'done' : 'open'); await load(); } catch (er) { say(er.message, 'err'); } } }) : null,
     lvTag(w.level), w.type ? h('span', { class: 'tp ' + w.type }, T.reqTypes[w.type]) : null, h('span', { class: 'ti' }, w.title),
     w.needsReview ? h('span', { class: 'rv' }, '待分层') : null,
     w.mp2 ? h('span', { class: 'mp', title: '对应需求管理平台的记录' }, `${w.mp2.code || '#' + w.mp2.id}${w.mp2Status?.label ? ' · ' + w.mp2Status.label : ''}`) : null,
@@ -50,7 +52,7 @@ function draw() {
     g.items.forEach(w => walk(w, 0));
     if (rows.length) out.push(h('div', { class: 'grp' + (g.pending ? ' pend' : '') }, g.label, g.pending ? h('em', {}, '本地记下、还没对应平台：逐条确认归入或新建') : g.suggested ? h('em', {}, 'AI 建议的归属，待确认') : null), ...rows);
   }
-  box.replaceChildren(...(out.length ? out : [h('div', { class: 'empty' }, f.status === 'open' ? '还没有进行中的工作。去「汇总」整理一次线索。' : '没有找到')]));
+  box.replaceChildren(...(out.length ? out : [h('div', { class: 'empty' }, f.status === 'open' ? '还没有进行中的工作。点右上角「汇总新线索」整理一次。' : '没有找到')]));
 }
 function datalist(id, arr) { return h('datalist', { id }, ...arr.map(x => h('option', { value: x }))); }
 async function show(id) {
@@ -149,7 +151,8 @@ function mp2Box(w) {
   }
   if (w.mp2) {
     const st = w.mp2Status;
-    box.append(
+    // DOM 的 append 会把 null 当成文字「null」插进去，空的行要先滤掉（h() 自己会滤，这里直接用的是 box.append）
+    box.append(...[
       h('div', { class: 'hd' }, h('b', {}, '需求管理平台'), h('span', {}, `${w.mp2.code || '#' + w.mp2.id} · ${w.mp2.title || ''}`),
         st ? h('span', { class: 'st' + (st.found === false ? ' miss' : '') }, st.label) : h('span', { class: 'st miss' }, '还没读取进度')),
       w.mp2.kind === 'project' && st?.start ? h('div', { class: 'sub' }, `项目周期 ${st.start} ~ ${st.end || '未定'}`) : null,
@@ -161,7 +164,7 @@ function mp2Box(w) {
         h('button', { onclick: () => ipcRenderer.invoke('work:mp2-open', w.mp2) }, '在需求管理平台查看'),
         h('button', { onclick: async () => { try { const r = await call('work:mp2-refresh'); await done(`已刷新 ${r.updated} 条`); } catch (e) { fail(e); } } }, '刷新进度'),
         h('button', { class: 'ghost', onclick: async () => { try { await call('work:unbind', w.id); await done('已解除绑定'); } catch (e) { fail(e); } } }, '解除绑定')),
-      msg);
+      msg].filter(Boolean));
     return box;
   }
   box.append(h('div', { class: 'hd' }, h('b', {}, '需求管理平台'), h('span', { class: 'st miss' }, '只在本地，待归入')));
@@ -234,7 +237,16 @@ function mp2Box(w) {
 }
 
 $('#q').addEventListener('input', e => { f.q = e.target.value; draw(); });
-$('#sigs').onclick = () => ipcRenderer.send('list:open', null);
+$('#summ').onclick = async e => {
+  const b = e.target; b.disabled = true; b.textContent = '汇总中…'; say('');
+  try {
+    const r = await call('svc:summary-run', 'all'), n = {};
+    for (const it of r.items || []) n[it.level || 'todo'] = (n[it.level || 'todo'] || 0) + 1;
+    const got = ['program', 'project', 'requirement', 'todo'].filter(k => n[k]).map(k => `${T?.levels?.[k]?.label || k} ${n[k]}`).join('、');
+    say(`${r.overview || '汇总完成'}${got ? '：整理出 ' + got : '（没有新的工作）'}${r.fyi?.length ? `；另有 ${r.fyi.length} 条只需知道一下` : ''}`); await load();
+  } catch (er) { say(er.message, 'err'); }
+  b.disabled = false; b.textContent = '汇总新线索';
+};
 $('#reorg').onclick = async e => {
   const b = e.target; b.disabled = true; b.textContent = 'AI 整理中…'; say('');
   try { const r = await call('work:reorg'); say(`${r.summary || 'AI 整理完成'}${r.log.length ? '：' + r.log.slice(0, 6).join('；') + (r.log.length > 6 ? ` 等 ${r.log.length} 处` : '') : '（没有需要调整的）'}`); await load(); }

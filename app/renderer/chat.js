@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== undefined && v !== false && v !== null) e.setAttribute(k, v === true ? '' : v); } kids.flat().filter(x => x != null && x !== false).forEach(k => e.append(k.nodeType ? k : document.createTextNode(k))); return e; };
 const qs = new URLSearchParams(location.search);
 for (const k of ['a1', 'a2']) if (/^#[0-9a-f]{6}$/i.test(qs.get(k) || '')) document.documentElement.style.setProperty('--' + k, qs.get(k));
-if (process.platform !== 'darwin') document.body.classList.add('win');
+if (process.platform !== 'darwin' || qs.get('embedded')) document.body.classList.add('win'); // 嵌在主窗口里时左边没有红绿灯，不用留空
 const call = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
 const when = t => { const d = new Date(t); if (isNaN(d)) return ''; const today = new Date().toDateString() === d.toDateString(); return d.toLocaleString('zh-CN', today ? { hour: '2-digit', minute: '2-digit', hour12: false } : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
 const secs = ms => ms >= 60000 ? `${Math.floor(ms / 60000)} 分 ${Math.round(ms % 60000 / 1000)} 秒` : `${(ms / 1000).toFixed(1)} 秒`;

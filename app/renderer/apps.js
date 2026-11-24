@@ -1,4 +1,4 @@
-/* 精灵旁边打开的应用页：汇总、待办、需求池、搬运、问知识、邮箱统计。
+/* 精灵旁边打开的应用页：搬运、提醒、升级、邮箱统计。汇总 / 待办 / 需求池并进了工作台，问知识并进了助手，收集并进了线索（1.3.0）。
  * 在 panel.js 之前加载；h / $ / ipcRenderer 由 panel.js 定义，只在函数里使用。 */
 const SRC = { mail: '邮件', feishu_im: '飞书', feishu_meeting: '会议' };
 const when = t => { if (!t) return ''; const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
@@ -11,169 +11,6 @@ const busyBtn = (label, cls, fn) => {
 };
 const empty = text => h('div', { class: 'card muted', style: 'text-align:center;padding:18px' }, text);
 
-function summaryPage(kind) {
-  return async body => {
-    const hasModel = await ipcRenderer.invoke('svc:has-model', 'summary');
-    const out = h('div'), msg = h('div');
-    const draw = r => {
-      out.replaceChildren();
-      if (!r) return out.append(empty(kind === 'mail' ? '还没有邮件汇报，点上面的按钮生成一份。' : '还没有汇总，点上面的按钮生成一份。'));
-      out.append(h('div', { class: 'card' }, h('h3', {}, r.overview || '汇总'),
-        h('div', { class: 'muted' }, `${when(r.at)} · ` + (Object.entries(r.counts || {}).map(([k, n]) => `${SRC[k] || k} ${n}`).join(' · ') || '没有新线索'))));
-      const LV = { program: '专项', project: '项目', requirement: '需求', todo: '待办' }, TP = { feature: '新功能', change: '优化', bug: '问题' };
-      for (const lv of ['program', 'project', 'requirement', 'todo']) {
-        const list = (r.items || []).filter(it => (it.level || 'todo') === lv); if (!list.length) continue;
-        out.append(h('div', { class: 'card' }, h('h3', {}, `${LV[lv]} ${list.length}`),
-          ...list.map(it => h('div', { class: 'li sig', onclick: () => ipcRenderer.send('work:open', it.id), title: '在工作台里查看和调整' },
-            h('div', { class: 'lt' }, h('b', { class: 'pr ' + it.priority }), it.type ? h('span', { class: 'tag' }, TP[it.type]) : null, h('span', { class: 'st' }, it.title)),
-            (it.crumbs || []).length ? h('div', { class: 'meta' }, '属于 ' + it.crumbs.map(c => `${LV[c.level]}·${c.title}`).join(' › ')) : null,
-            h('div', { class: 'muted' }, it.summary),
-            h('div', { class: 'meta' }, it.deadline ? h('span', { class: 'tag' + (it.deadline_verified ? ' ok' : ' warn'), title: it.deadline_quote || '' }, `⏰ ${it.deadline}${it.deadline_verified ? '' : ' 待确认'}`) : null,
-              (it.line || it.product) ? h('span', {}, [it.line, it.product].filter(Boolean).join(' › ') + (it.anchorSuggested ? '（建议）' : '')) : null,
-              it.who ? h('span', {}, it.who) : null)))));
-      }
-      if (r.items?.length) out.append(h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => ipcRenderer.send('work:open', null) }, '打开工作台')));
-      if (r.fyi?.length) out.append(h('div', { class: 'card' }, h('h3', {}, '知道一下'), ...r.fyi.map(f => h('div', { class: 'li muted' }, f.note))));
-    };
-    try { draw(await call('svc:summary-last', kind)); } catch (e) { out.append(errBox(e)); }
-    body.append(h('div', { class: 'card' },
-      h('div', { class: 'muted' }, kind === 'mail' ? '只整理邮件：要处理的事和交期。' : '从邮件、飞书、纪要里整理需求和待办；交期没原文会标「待确认」。'),
-      hasModel ? null : h('div', { class: 'err' }, '还没有可用的模型：去「设置 › 模型」添加。'),
-      h('div', { class: 'row' }, busyBtn(kind === 'mail' ? '整理邮件' : '重新汇总', 'pri', async () => { msg.replaceChildren(); try { draw(await call('svc:summary-run', kind)); } catch (e) { msg.append(errBox(e)); } })), msg), out);
-  };
-}
-
-/* 三个维度：线索（原文）→ 待办（我要做的跟进）/ 需求池（项目里要完成的完整的事）。每页顶部都放这条，点了切换 */
-const DIMS = [['clues', '线索', '收到的邮件、飞书、纪要原文'], ['tasks', '待办', '从线索整理出的跟进动作：需求跟进 + 日常'], ['pool', '需求池', '按项目归集：每条是项目里要完成的一件完整的事']];
-function dimBar(cur) {
-  const go = id => (id === 'clues' ? ipcRenderer.send('list:open', null) : ipcRenderer.send('panel:action', 'app.' + id));
-  return h('div', { class: 'dims' }, h('div', { class: 'dimrow' }, ...DIMS.flatMap(([id, n], i) => [i ? h('i', { class: 'arr' }, i === 1 ? '→' : '·') : null, h('b', { class: id === cur ? 'on' : '', onclick: () => id !== cur && go(id) }, n)])),
-    h('div', { class: 'muted' }, DIMS.find(d => d[0] === cur)[2]));
-}
-const LVN = { program: '专项', project: '项目', requirement: '需求' }, TPN = { feature: '新功能', change: '优化', bug: '问题' };
-const dl = (d, ok) => d ? h('span', { class: 'tag' + (ok ? ' ok' : ' warn') }, `⏰ ${d.slice(5)}${ok ? '' : ' 待确认'}`) : null;
-
-async function pageTasks(body) {
-  const list = h('div'), rem = await ipcRenderer.invoke('rem:state').catch(() => ({}));
-  const row = t => h('div', { class: 'li' },
-    h('label', { class: 'lt' }, h('input', { type: 'checkbox', checked: t.status === 'done', onchange: async e => draw(await call('svc:task-set', t.id, e.target.checked ? 'done' : 'open')) }), h('span', { class: 'st' }, t.title)),
-    t.summary ? h('div', { class: 'muted' }, t.summary) : null,
-    h('div', { class: 'meta' }, dl(t.deadline, t.deadline_verified), t.who ? h('span', {}, t.who) : null,
-      (t.sids || []).length ? h('a', { class: 'lnk', onclick: () => ipcRenderer.send('list:open', t.sids[0]) }, `来自线索：${t.source_title || SRC[t.source] || ''}`) : null));
-  const draw = tasks => {
-    const open = tasks.filter(t => t.status === 'open'), done = tasks.filter(t => t.status === 'done');
-    const follow = open.filter(t => t.kind === 'follow'), daily = open.filter(t => t.kind !== 'follow');
-    list.replaceChildren(dimBar('tasks'));
-    if (rem.today?.length) list.append(h('div', { class: 'remday', title: '提醒不算待办：每天固定时间由精灵提醒', onclick: () => ipcRenderer.send('panel:action', 'app.reminders') },
-      h('span', { class: 'muted' }, '今天的提醒'), ...rem.today.map(r => h('span', { class: 'rd' + (r.passed ? ' past' : '') }, `${r.time} ${r.label}`))));
-    if (!open.length) list.append(empty('没有待办。汇总线索时会把要你跟进的事整理进来。'));
-    if (follow.length) {
-      const byReq = new Map(); for (const t of follow) { const k = t.requirement.id; if (!byReq.has(k)) byReq.set(k, { r: t.requirement, p: t.project, items: [] }); byReq.get(k).items.push(t); }
-      list.append(h('div', { class: 'card' }, h('h3', {}, `需求跟进 ${follow.length}`),
-        ...[...byReq.values()].map(g => h('div', { class: 'grp2' },
-          h('div', { class: 'gh2', title: '在工作台里看这条需求', onclick: () => ipcRenderer.send('work:open', g.r.id) }, h('span', { class: 'tag' }, '需求'), h('span', { class: 'st' }, g.r.title), g.p ? h('span', { class: 'muted' }, '· ' + g.p.title) : null),
-          ...g.items.map(row)))));
-    }
-    if (daily.length) list.append(h('div', { class: 'card' }, h('h3', {}, `日常 ${daily.length}`), ...daily.map(row)));
-    if (done.length) list.append(h('div', { class: 'card' }, h('h3', {}, `最近完成 ${done.length}`), ...done.slice(-10).reverse().map(t => h('div', { class: 'li done' },
-      h('label', { class: 'lt' }, h('input', { type: 'checkbox', checked: true, onchange: async () => draw(await call('svc:task-set', t.id, 'open')) }), t.title)))));
-  };
-  try { draw(await call('svc:tasks')); } catch (e) { list.append(errBox(e)); }
-  body.append(list);
-}
-
-async function pagePool(body) {
-  const box = h('div'), remote = h('div');
-  body.append(dimBar('pool'), box, remote);
-  try {
-    const P = await call('svc:req-pool'), c = P.counts;
-    box.append(h('div', { class: 'stats' }, ...[['项目', c.projects], ['进行中需求', c.open], ['未归入项目', c.unassigned]].map(([n, v]) => h('div', {}, h('b', {}, String(v)), h('span', {}, n)))));
-    if (!P.projects.length) box.append(empty('需求池还是空的。汇总线索时，AI 会把「项目里要完成的完整的事」整理进来。'));
-    for (const g of P.projects) box.append(h('div', { class: 'card' },
-      h('div', { class: 'ph', onclick: () => g.id && ipcRenderer.send('work:open', g.id), title: g.id ? '在工作台里看这个项目' : '' },
-        h('div', { class: 'pt' }, g.id ? h('span', { class: 'lvp' }, '项目') : null, h('b', {}, g.title), g.autoCreated ? h('span', { class: 'tag warn' }, 'AI 新建，待确认') : null),
-        h('div', { class: 'muted' }, [g.program && '专项 · ' + g.program, [g.line, g.product].filter(Boolean).join(' › ') + (g.suggested ? '（建议）' : '')].filter(Boolean).join('  ·  ') || (g.id ? '' : '在工作台里给它们选一个项目'))),
-      ...g.reqs.map(r => h('div', { class: 'li sig' + (r.status !== 'open' ? ' done' : ''), onclick: () => ipcRenderer.send('work:open', r.id) },
-        h('div', { class: 'lt' }, h('b', { class: 'pr ' + r.priority }), r.type ? h('span', { class: 'tag' + (r.type === 'bug' ? ' warn' : '') }, TPN[r.type]) : null, h('span', { class: 'st' }, r.title)),
-        r.summary ? h('div', { class: 'pv2' }, r.summary) : null,
-        h('div', { class: 'meta' }, r.status !== 'open' ? h('span', { class: 'tag ok' }, r.status === 'done' ? '已完成' : '不做了') : null, dl(r.deadline, r.deadline_verified),
-          r.todosOpen ? h('span', {}, `跟进待办 ${r.todosOpen}`) : r.todosDone ? h('span', {}, `跟进已完成 ${r.todosDone}`) : null, h('span', {}, `线索 ${r.clues} 条`), r.who ? h('span', {}, r.who) : null)))));
-    box.append(h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => ipcRenderer.send('work:open', null) }, '在工作台里调整')));
-  } catch (e) { box.append(errBox(e)); }
-  // 需求管理平台上的个人需求池（候选需求在平台上确认）
-  const acct = await ipcRenderer.invoke('mp2:state');
-  if (!acct.account.linked) { remote.append(h('div', { class: 'card' }, h('h3', {}, '需求管理平台'), h('div', { class: 'muted' }, '关联后，这里同时显示你在平台上的候选需求和确认情况。'), h('div', { class: 'row' }, h('button', { onclick: () => ipcRenderer.send('panel:action', 'app.connect') }, '去关联')))); return; }
-  remote.append(h('div', { class: 'card muted' }, '正在读取需求管理平台…'));
-  call('svc:candidates').then(r => {
-    const s = r.summary || {};
-    remote.replaceChildren(h('div', { class: 'card' }, h('h3', {}, '需求管理平台 · 我的需求池'),
-      h('div', { class: 'stats' }, ...[['待确认', s.pending], ['已入池', s.pooled], ['已拒绝', s.rejected]].map(([n, v]) => h('div', {}, h('b', {}, String(v ?? 0)), h('span', {}, n)))),
-      ...(r.items || []).slice(0, 10).map(c => h('div', { class: 'li' }, h('div', { class: 'lt' }, c.title), h('div', { class: 'meta' }, h('span', { class: 'tag' }, { pending: '待确认', pooled: '已入池', confirmed: '已入池', rejected: '已拒绝' }[c.status] || c.status)))),
-      h('div', { class: 'row' }, h('button', { onclick: () => ipcRenderer.invoke('mp2:open-pool') }, '在平台上确认'))));
-  }).catch(e => remote.replaceChildren(h('div', { class: 'card' }, errBox(e))));
-}
-
-async function pageCollect(body) {
-  const box = h('div'), log = h('div'), msg = h('div');
-  const drawSources = st => {
-    box.replaceChildren(h('div', { class: 'card' }, h('h3', {}, '信息源'),
-      ...Object.entries(st.sources).map(([k, v]) => h('div', { class: 'row' },
-        h('input', { type: 'checkbox', checked: v.enabled, onchange: async e => { try { await call('svc:source-set', k, e.target.checked); } catch (er) { msg.replaceChildren(errBox(er)); } } }),
-        h('span', { style: 'flex:1' }, v.label || SRC[k] || k), h('span', { class: 'muted' }, v.cursor ? `收到 ${when(v.cursor)}` : '还没收集过'))),
-      h('div', { class: 'muted' }, st.mp2.configured ? `送往：${st.mp2.baseUrl}（个人需求池）` : '还没有关联需求管理平台：只收集到本机，关联后再送出。'),
-      h('div', { class: 'row' }, busyBtn('立即搬运', 'pri', async () => {
-        msg.replaceChildren();
-        try {
-          const r = await call('svc:collect');
-          const c = Object.entries(r.collect).map(([k, v]) => `${SRC[k] || k}：${v.off ? '已关闭' : v.error ? '失败 ' + v.error : `新增 ${v.added}`}`).join('；');
-          const s = r.submit.skipped ? '未送出（没有关联平台）' : `送达 ${r.submit.sent}，重复 ${r.submit.duplicate}，失败 ${r.submit.failed}`;
-          msg.append(h('div', { class: 'ok' }, `${c}。${s}。`)); drawSources(r.status); await drawLog();
-        } catch (e) { msg.append(errBox(e)); }
-      })), msg));
-  };
-  const drawLog = async () => {
-    const t = await call('svc:ticker');
-    log.replaceChildren(h('div', { class: 'card' }, h('h3', {}, '搬运记录'), ...(t.length ? t.slice().reverse().slice(0, 25).map(x => h('div', { class: 'li' + (x.kind === 'error' ? ' errl' : '') }, h('span', { class: 'muted' }, when(x.at) + ' '), x.text)) : [h('div', { class: 'muted' }, '还没有记录')])));
-  };
-  const clues = h('div');
-  try {
-    const p = await call('svc:pool'), o = p.status.outbox; drawSources(p.status); await drawLog();
-    const openAll = id => ipcRenderer.send('list:open', id || null);
-    clues.append(h('div', { class: 'card' }, h('h3', {}, '最近的线索'),
-      h('div', { class: 'stats' }, ...[['待搬运', o.queued], ['已送达', o.submitted], ['失败', o.failed]].map(([n, v]) => h('div', {}, h('b', {}, String(v)), h('span', {}, n)))),
-      ...p.queued.slice(0, 5).map(x => h('div', { class: 'li sig', onclick: () => openAll(x.id) },
-        h('div', { class: 'lt' }, h('span', { class: 'tag' }, x.kind || x.sourceLabel), h('span', { class: 'st' }, x.title)), h('div', { class: 'pv2' }, x.preview))),
-      h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => openAll() }, '查看全部线索'))));
-  } catch (e) { box.append(errBox(e)); }
-  body.append(box, clues, log);
-}
-
-async function pageKnowledge(body) {
-  const ta = h('textarea', { rows: 3, placeholder: '问一个问题，例如：eSIM 下载失败一般有哪些原因？' }), out = h('div'), log = h('div');
-  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) go.click(); });
-  const tools = await call('agent:tools').catch(() => ({ integrations: [] }));
-  agentStep = s => log.append(h('div', { class: 'li step' }, h('div', { class: 'lt' }, h('span', { class: 'tag' + (s.kind === 'call' ? (s.ok ? ' ok' : ' warn') : '') }, s.kind === 'call' ? '检索' : '提示'), h('span', { class: 'st' }, (s.tool || '').replace(/^[^_]+__/, '')), s.ms ? h('span', { class: 'muted' }, `${(s.ms / 1000).toFixed(1)}s`) : null),
-    s.why ? h('div', { class: 'muted' }, s.why) : null, s.error ? h('div', { class: 'muted' }, s.error) : null, s.result ? h('details', {}, h('summary', { class: 'muted' }, '看检索结果'), h('pre', { class: 'args' }, s.result)) : null));
-  const go = busyBtn('提问', 'pri', async () => {
-    if (!ta.value.trim()) return; out.replaceChildren(); log.replaceChildren();
-    try {
-      const r = await call('kb:ask', ta.value);
-      if (r.legacy) { // 没有知识库 MCP：旧的直连方式
-        if (r.note) out.append(h('div', { class: 'muted' }, r.note));
-        if (r.answer) out.append(h('div', { class: 'card' }, h('h3', {}, '回答'), h('div', { class: 'ans' }, r.answer.text)));
-        for (const hit of r.hits || []) out.append(h('div', { class: 'card' }, h('h3', {}, `检索结果 · ${hit.kb}`), hit.error ? h('div', { class: 'err' }, hit.error) : null, hit.text ? h('div', { class: 'ans muted' }, hit.text.slice(0, 1500)) : null));
-        return;
-      }
-      out.append(h('div', { class: 'card' }, h('h3', {}, r.incomplete ? '没有得到结论' : '回答'), h('div', { class: 'ans' }, r.answer),
-        h('div', { class: 'muted', style: 'margin-top:6px' }, `检索 ${r.steps.filter(s => s.kind === 'call').length} 次`),
-        r.problems?.length ? h('div', { class: 'err' }, '部分接入没连上：' + r.problems.join('；')) : null));
-    } catch (e) { out.append(errBox(e)); }
-  });
-  body.append(h('div', { class: 'card' },
-    h('div', { class: 'muted' }, tools.integrations?.length ? '先确认是哪个平台再检索，回答注明依据。' : '还没有可用的知识库：到「设置 › 接入」填一下知识库凭据。'),
-    ta, h('div', { class: 'row' }, go, h('span', { class: 'muted' }, '⌘/Ctrl + Enter 发送'))), out, log);
-}
-
 async function pageMailStats(body) {
   try {
     const m = await call('svc:mail-stats');
@@ -183,7 +20,7 @@ async function pageMailStats(body) {
       h('div', { class: 'muted' }, `来自人的 ${m.human} · 系统通知 ${m.auto} · 带附件 ${m.attach}`)),
       h('div', { class: 'card' }, h('h3', {}, '谁发得最多'), ...m.top.map(t => h('div', { class: 'row' }, h('span', { style: 'flex:1' }, t.name), h('b', {}, String(t.count))))),
       h('div', { class: 'card' }, h('h3', {}, '最近的未读'), ...m.threads.filter(t => !t.auto).slice(0, 15).map(t => h('div', { class: 'li' }, h('div', { class: 'lt' }, t.subject), h('div', { class: 'meta' }, h('span', {}, t.from), h('span', {}, when(t.at)))))),
-      h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => ipcRenderer.send('panel:action', 'mail.open') }, '打开邮箱'), h('button', { onclick: () => ipcRenderer.send('panel:action', 'mail.report') }, '邮件汇报')));
+      h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => ipcRenderer.send('panel:action', 'mail.open') }, '打开邮箱'), h('button', { onclick: () => ipcRenderer.send('panel:action', 'app.work') }, '在工作台汇总')));
   } catch (e) { body.append(errBox(e)); }
 }
 
@@ -221,10 +58,6 @@ async function pageUpdate(body) {
   updDraw(await ipcRenderer.invoke('upd:state'));
   body.append(box);
 }
-
-/* 问知识的检索步骤：每一步都显示出来（助手已经搬到对话工作台 chat.*） */
-let agentStep = null;
-require('electron').ipcRenderer.on('agent:step', (_e, s) => { if (agentStep) agentStep(s); });
 
 /* 员工提醒：订饭、吃饭、下班……时间、星期、订餐页面都可以自己设 */
 async function pageReminders(body) {
@@ -345,11 +178,5 @@ const APPS = {
   'app.peers': ['搬运', pagePeers],
   'app.reminders': ['提醒', pageReminders],
   'app.update': ['升级', pageUpdate],
-  'app.summary': ['汇总', summaryPage('all')],
-  'mail.report': ['邮件汇报', summaryPage('mail')],
-  'app.tasks': ['待办', pageTasks],
-  'app.pool': ['我的需求池', pagePool],
-  'app.collect': ['收集', pageCollect],
-  'app.knowledge': ['问知识', pageKnowledge],
   'mail.stats': ['邮箱未读', pageMailStats],
 };

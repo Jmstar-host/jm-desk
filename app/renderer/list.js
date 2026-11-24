@@ -4,7 +4,7 @@ const $ = s => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== undefined && v !== false && v !== null) e.setAttribute(k, v === true ? '' : v); } kids.flat().filter(x => x != null && x !== false).forEach(k => e.append(k.nodeType ? k : document.createTextNode(k))); return e; };
 const qs = new URLSearchParams(location.search);
 for (const k of ['a1', 'a2']) if (/^#[0-9a-f]{6}$/i.test(qs.get(k) || '')) document.documentElement.style.setProperty('--' + k, qs.get(k));
-if (process.platform !== 'darwin') document.body.classList.add('win');
+if (process.platform !== 'darwin' || qs.get('embedded')) document.body.classList.add('win'); // 嵌在主窗口里时左边没有红绿灯，不用留空
 const call = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
 const when = t => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
 const ST = [['all', '全部'], ['queued', '待搬运'], ['submitted', '已送达'], ['failed', '失败'], ['ignored', '不搬运']];
@@ -72,6 +72,28 @@ $('#run').onclick = async e => {
   try { const r = await call('svc:collect'); b.textContent = r.submit.skipped ? '已收集（未关联平台）' : `送达 ${r.submit.sent} 条`; await load(); }
   catch (err) { b.textContent = '失败：' + err.message.slice(0, 20); }
   setTimeout(() => { b.disabled = false; b.textContent = '立即搬运'; }, 2500);
+};
+/* 信息源与记录（原来面板里的「收集」页）：开关信息源、看搬运记录、看需求管理平台上的候选需求 */
+$('#srcs').onclick = async () => {
+  const body = h('div', {}, h('div', { class: 'loading' }, h('i'), h('i'), h('i'))), box = h('div', { class: 'modal', onclick: e => { if (e.target === box) box.remove(); } },
+    h('div', { class: 'dlg wide' }, h('h3', {}, '信息源与记录'), body, h('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, h('button', { onclick: () => box.remove() }, '关闭'))));
+  document.body.append(box);
+  const SRC = { mail: '邮件', feishu_im: '飞书', feishu_meeting: '会议' };
+  try {
+    const [p, t] = await Promise.all([call('svc:pool'), call('svc:ticker')]), st = p.status, o = st.outbox, msg = h('div');
+    const remote = h('div', { class: 'muted' }, st.mp2.configured ? '正在读取需求管理平台…' : '还没有关联需求管理平台：线索只收集到本机，关联后再送出（设置 › 需求管理平台）。');
+    body.replaceChildren(
+      h('div', { class: 'stats' }, ...[['待搬运', o.queued], ['已送达', o.submitted], ['失败', o.failed]].map(([n, v]) => h('div', {}, h('b', {}, String(v ?? 0)), h('span', {}, n)))),
+      h('div', { class: 'sec' }, '收哪些信息源'),
+      ...Object.entries(st.sources).map(([k, v]) => h('label', { class: 'sr' }, h('input', { type: 'checkbox', checked: v.enabled, onchange: async e => { try { await call('svc:source-set', k, e.target.checked); } catch (er) { msg.replaceChildren(h('div', { class: 'err' }, er.message)); } } }),
+        h('span', {}, v.label || SRC[k] || k), h('small', { class: 'muted' }, v.cursor ? '收到 ' + when(v.cursor) : '还没收集过'))), msg,
+      h('div', { class: 'sec' }, '需求管理平台 · 我的需求池'), remote,
+      h('div', { class: 'sec' }, '搬运记录'),
+      h('div', { class: 'log' }, ...(t.length ? t.slice().reverse().slice(0, 30).map(x => h('div', { class: x.kind === 'error' ? 'e' : '' }, h('span', { class: 'muted' }, when(x.at) + '  '), x.text)) : [h('div', { class: 'muted' }, '还没有记录')])));
+    if (st.mp2.configured) call('svc:candidates').then(r => { const s = r.summary || {};
+      remote.replaceChildren(h('div', { class: 'stats' }, ...[['待确认', s.pending], ['已入池', s.pooled], ['已拒绝', s.rejected]].map(([n, v]) => h('div', {}, h('b', {}, String(v ?? 0)), h('span', {}, n))))); remote.className = '';
+    }).catch(e => { remote.textContent = '读取失败：' + e.message; });
+  } catch (e) { body.replaceChildren(h('div', { class: 'err' }, e.message)); }
 };
 $('#mp2').onclick = async () => { const ok = await ipcRenderer.invoke('mp2:open-pool'); if (!ok) $('#mp2').textContent = '还没关联需求管理平台'; };
 ipcRenderer.on('list:focus', (_e, id) => { if (id) { current = id; f = { status: 'all', source: null, q: '' }; $('#q').value = ''; } load(); });

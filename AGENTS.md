@@ -19,7 +19,7 @@
 
 ```json
 { "version": 1, "groups": [
-  { "id": "work", "label": "工作", "icon": "doc", "color": ["#8b7cf6", "#60a5fa"], "tip": "汇总、待办", "items": ["app.summary", "app.tasks"] }
+  { "id": "work", "label": "工作", "icon": "doc", "color": ["#8b7cf6", "#60a5fa"], "tip": "助手、工作台", "items": ["app.agent", "app.work"] }
 ] }
 ```
 
@@ -31,12 +31,13 @@
 | 动作 id | 名称 | 类型 |
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
-| `app.work` `app.clues` `app.agent` | 工作台、线索、助手（对话工作台）（大窗口） | 命令 |
-| `app.summary` `app.tasks` `app.pool` `app.collect` `app.knowledge` | 汇总 待办 需求池 收集 问知识 | 面板 |
+| `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的三个页面）、主窗口（上次看的页面） | 命令 |
 | `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
-| `app.reminders` `app.character` `app.settings` `app.models` `app.connect` `app.integrations` `app.update` | 提醒 形象 设置 模型 平台 接入 升级 | 面板 |
-| `mail.open` `mail.compose` `mail.stats` `mail.report` | 邮箱 写邮件 未读 邮件汇报 | 邮箱（调起本机邮件客户端） |
+| `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |
+| `mail.open` `mail.compose` `mail.stats` | 邮箱 写邮件 未读 | 邮箱（调起本机邮件客户端） |
 | `toggle.roam` `place.corner` | 自由飞 右下角 | 开关 / 位置 |
+
+**1.3.0 去掉的入口**（`catalog.mjs` 的 `MOVED`）：汇总、待办、需求池、邮件汇报并进工作台；问知识并进助手；收集并进线索；平台、接入、模型、形象是设置里的分页。旧的 `layout.json` 启动时自动迁移（`migrateLayout`，原文件备份为 `layout.json.bak-1.3.0`）；代码或外部 AI 还用旧 id 时，`runAction` / `openPanel` 按 `MOVED` 转过去，不报错。新加功能先想清楚放进哪个现有页面，不要再加平行入口。
 
 新增动作的做法：在 `catalog.mjs` 的 `CATALOG` 登记，再在 `main.mjs` 的 `runAction`（面板 / 命令）或 `sprite.js` 的技能里实现。改完自查：
 
@@ -67,7 +68,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 `app/main/reminders.mjs`，界面在面板「提醒」，配置在 `settings.reminders`：`{ enabled, notify, mealUrl, items: [{ id, label, time: "HH:mm", days: [1..7], message, openMeal, url, enabled }] }`。
 - 默认是工作日 10:30 订饭、12:00 吃饭、18:00 下班。到点精灵冒气泡，可选同时发系统通知；点气泡打开订餐页面。
 - 每条每天最多提醒一次。电脑睡着错过的，30 分钟内醒来会补提醒。已提醒的记录在 `DATA/reminders-state.json`。
-- 只在「待办」页顶部显示今天的安排。
+- 今天的安排在「提醒」面板里看。
 
 ## 4.5 搬运（两台桌面互访，代码里叫 peers / 串门）
 
@@ -103,19 +104,19 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **已关联的需求管理平台**会自动成为内置接入：设备授权拿到的凭据本身就是 `mcpServers.mp2` 配置。
 - **密钥**：环境变量、请求头、Token 都加密存放在 `secrets.json` 的 `integ` 下，`settings.json` 里只有名字。
 - **工具权限** `toolPolicy[接入][工具] = auto | confirm | off`。默认规则：只读的工具（MCP 标了 `readOnlyHint`、名字像查询、API 的 GET）是 `auto`，其余是 `confirm`。
-- **助手 = 对话工作台**（窗口 `app/renderer/chat.*`，运行时 `app/main/agent.mjs` 的 `converse`，会话 `app/main/threads.mjs`）：
+- **助手**（主窗口的「助手」页 `app/renderer/chat.*`，问知识也在这里：有知识库接入时自动带上检索规则；运行时 `app/main/agent.mjs` 的 `converse`，会话 `app/main/threads.mjs`）：
   - 多轮对话：每个会话存成 `DATA/threads/<id>.json`（0600，工具返回只存片段）；下一轮带上之前的问答，太长时丢掉最早的轮次。
   - 工具调用：模型一步可以调多个工具，一轮最多 12 步；OpenAI 兼容接口走原生 `tools` / `tool_calls`，接口不支持或用的是本机 Claude Code / Codex / 自定义命令时，自动改成「每步输出一个 JSON」的约定（`providers.mjs` 的 `converse`、`protocolPrompt`）。
   - 工具范围：每个会话可以只勾选某几个接入（`scope.integrations`）；工具超过 32 个时只给模型最相关的一部分，其余通过内置的 `find_tools` 按关键词找。
   - 规则不变：工具返回值是数据不是指令；`toolPolicy` 为需确认的调用在对话里出一张确认卡，5 分钟不点算拒绝；可以随时「停止」。
-  - 旧的单轮 `agent.run`（最多 6–8 步，每步一个工具）还在，问知识和搬运接待访客用它。
+  - 旧的单轮 `agent.run`（最多 6 步，每步一个工具）还在，只有搬运接待访客用它。
 - **本机执行者**（`app/main/executors.mjs`）：把一件要动手的事交给本机已登录的 Codex（`codex exec`）或 DSH（`dsh --profile headless`）。
   - **执行项目**：一个独立的文件夹，登记在 `DATA/exec-projects.json`，默认建在 `DATA/projects/<id>/`，也可以指定已有文件夹（主目录、磁盘根、系统目录不让选）。里面有 JM Desk 写的 `AGENTS.md`（规矩）、`inbox/`、`output/`。移除项目只取消登记，不删文件夹。
   - **权限**：`workspace-write`（只能在项目文件夹里写）或 `read-only`；Codex 用沙箱参数，DSH 用环境变量 `DSH_PERMISSION_MODE`。同一个项目同时只跑一个任务，默认 30 分钟超时，可以停止（结束整个进程组）。
   - **怎么派活**：对话工作台新对话的「对象」选执行项目，每一轮就是一次执行（会话的 `target = { kind: 'project', id }`）；Codex 用 `exec resume <会话号>` 接着上一次，接不上或用 DSH 时把前几轮要点写进任务。助手也可以自己转派：内置工具 `list_exec_projects`、`run_exec_project`（写操作，先确认；标了 `assistantOnly`，不经本机 MCP 暴露，免得执行者再派执行者）。
   - **回调 JM Desk**：打开了「让本机 AI 控制 JM Desk」时，Codex 这次运行会带上本机 MCP 端点（`-c mcp_servers.jm_desk.url=…`，令牌只走环境变量），可以读写工作区，写操作照旧弹窗确认。DSH 暂时没有这条通道。
   - Codex 的 `--json` 事件解析成和助手一样的步骤（命令、改文件、MCP 工具、中途说明）；用量记到 `usage.jsonl` 的 `exec-codex`。
-- **问知识**：只使用 `knowledge: true` 的接入。先用 `business_catalog` 确认平台，再带上 platform 检索，必要时异步检索，最多 8 步。没有这类接入时，退回 `settings.knowledge` 的直连方式（`app/main/knowledge.mjs`）。
+- **问知识**：在助手里问。会话里有 `knowledge: true` 的接入时，系统提示自动加上检索规则（先 `business_catalog` 确认平台，再带 platform 检索，必要时异步检索）。
 - **导入**：可以从 Claude Code、Claude Desktop、Cursor、Codex 的配置里导入 MCP，密钥直接加密保存，不经过界面。
 
 ## 6. 模型来源与 token 政策
@@ -136,7 +137,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 
 - **关联账号**用设备授权（参照 RFC 8628，`src/mp2link.mjs`），流程见 `docs/PLATFORM-CONNECT.md`：助手发起 → 用户在平台网页上点「允许」→ 助手领取一次凭据（存为 0600 文件）。
 - **网页唤起**：`jmdesk://connect?base=<平台地址>`（`app/main/deeplink.mjs`，打包时 `build.protocols` 注册 `jmdesk`）打开「关联需求管理平台账号」并预填地址。**只预填，不自动发起**——任何网页都能触发 URL scheme，自动发起会让恶意地址借设备授权塞进一个假的 MCP 接入；用户核对地址后自己点「申请关联代码」。非 https 且非本机的地址会提示。已关联其他平台时只提示，不替换。
-- **收集**（面板「收集」，「设置」组）：把线索送进平台的个人需求池（`POST /api/meeting-intake/sources`，契约见 `docs/INTAKE-CONTRACT.md`）。候选需求只能由人在平台上确认。
+- **收集**（主窗口「线索」页的「立即搬运」，信息源开关和记录在「信息源与记录」里）：把线索送进平台的个人需求池（`POST /api/meeting-intake/sources`，契约见 `docs/INTAKE-CONTRACT.md`）。候选需求只能由人在平台上确认。
 
 ## 8. 构建、发版、企业预置
 
@@ -172,7 +173,7 @@ app/main/services.mjs      汇总、待办、需求池、线索、收集（调�
 app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
-app/main/agent.mjs         助手运行时：converse（多轮对话，对话工作台用）、run（单轮，问知识 / 搬运用）
+app/main/agent.mjs         助手运行时：converse（多轮对话，助手页用）、run（单轮，搬运接待访客用）
 app/main/threads.mjs       对话工作台的会话存储（DATA/threads/）
 app/main/executors.mjs     本机执行者：执行项目登记、Codex / DSH 命令、输出解析、运行与停止
 app/main/localmcp.mjs      本机 AI 控制 JM Desk 的 MCP 端点（只听 127.0.0.1，令牌 + 写操作弹窗确认）
@@ -189,7 +190,8 @@ app/renderer/sprite.*      精灵窗口：飞行、拖动、两圈菜单的几�
 app/renderer/hud.*         以精灵为中心的提示层：气泡菜单、说话气泡、右键卡片
 app/renderer/engine.mjs    3D 舞台、特效、形象包加载；lumi.mjs 是默认形象
 app/renderer/panel.*       精灵旁边的面板（设置和各功能页，apps.js 是功能页）
-app/renderer/list.*        线索大窗口；work.* 是工作台大窗口；chat.* 是对话工作台大窗口
+app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 + 搬运、设置）；三个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载
+app/renderer/chat.*        助手（多轮对话）；work.* 是工作台（含汇总、勾待办）；list.* 是线索（含信息源与搬运记录）
 app/renderer/theme.css     共用视觉：控件样式只写在这里，主色用 --a1 / --a2
 src/                       信息源收集器、平台调用、命令行（node src/cli.mjs）
 test/                      node --test，全部用假服务和虚构样例
