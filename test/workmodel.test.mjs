@@ -34,10 +34,10 @@ test('上级只能是更高层级：待办不能当需求的上级；同层不�
   assert.equal(v.items[1].parentId, null);
 });
 
-test('同一件事合并到已有工作：补线索、不改名不改层级；没有产品树时归属标为建议', () => {
+test('同一件事合并到已有工作：补线索、不改名不改层级；认不出的平台产品不写，只留线索给「待归入」', () => {
   const work = [];
   wm.mergeWork(work, wm.verify({ items: [{ ref: 'n1', level: 'requirement', title: '支持批量开卡接口', sids: ['s1'], product: '某平台' }] }, sigs, { work, taxonomy: null }));
-  assert.equal(work[0].anchorSuggested, true);
+  assert.equal(work[0].product, null); assert.equal(work[0].anchorHint, '某平台');
   const v2 = wm.verify({ items: [{ level: 'requirement', title: '批量开卡 API', sids: ['s2'], same_as: work[0].id }] }, sigs, { work });
   const r = wm.mergeWork(work, v2);
   assert.equal(work.length, 1); assert.deepEqual(work[0].sids, ['s1', 's2']); assert.equal(work[0].title, '支持批量开卡接口'); assert.equal(r.added, 0);

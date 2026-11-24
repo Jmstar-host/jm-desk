@@ -13,8 +13,10 @@ const notes = args.flatMap((a, i) => (a === '--notes' ? [args[i + 1]] : [])).fil
 const base = opt('--base');
 const sha = f => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
 const files = {};
-for (const [key, file] of [['darwin-arm64', `${name}-${v}-arm64.dmg`], ['darwin-x64', `${name}-${v}.dmg`], ['win32-x64', `${name} Setup ${v}.exe`]]) {
-  const f = path.join(dist, file); if (!fs.existsSync(f)) continue;
+// Intel 版打出来的文件名不带架构后缀；发布时通常改名成 -x64.dmg（下载页按这个名字识别），两种名字都认，优先用改过名的
+for (const [key, ...names] of [['darwin-arm64', `${name}-${v}-arm64.dmg`], ['darwin-x64', `${name}-${v}-x64.dmg`, `${name}-${v}.dmg`], ['win32-x64', `${name} Setup ${v}.exe`]]) {
+  const file = names.find(n => fs.existsSync(path.join(dist, n))); if (!file) continue;
+  const f = path.join(dist, file);
   files[key] = { url: base ? new URL(encodeURIComponent(file), base.endsWith('/') ? base : base + '/').href : encodeURIComponent(file), sha256: sha(f), size: fs.statSync(f).size };
 }
 if (!Object.keys(files).length) { console.error(`dist/ 里没有 ${v} 版本的安装包，先运行 npm run dist:mac / dist:win`); process.exit(1); }

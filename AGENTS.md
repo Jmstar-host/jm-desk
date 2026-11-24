@@ -31,10 +31,10 @@
 | 动作 id | 名称 | 类型 |
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
-| `app.work` `app.clues` | 工作台、线索（大窗口） | 命令 |
-| `app.summary` `app.tasks` `app.pool` `app.collect` `app.knowledge` `app.agent` | 汇总 待办 需求池 收集 问知识 助手 | 面板 |
+| `app.work` `app.clues` `app.agent` | 工作台、线索、助手（对话工作台）（大窗口） | 命令 |
+| `app.summary` `app.tasks` `app.pool` `app.collect` `app.knowledge` | 汇总 待办 需求池 收集 问知识 | 面板 |
 | `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
-| `app.reminders` `app.character` `app.settings` `app.connect` `app.integrations` `app.update` | 提醒 形象 设置 平台 接入 升级 | 面板 |
+| `app.reminders` `app.character` `app.settings` `app.models` `app.connect` `app.integrations` `app.update` | 提醒 形象 设置 模型 平台 接入 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` `mail.report` | 邮箱 写邮件 未读 邮件汇报 | 邮箱（调起本机邮件客户端） |
 | `toggle.roam` `place.corner` | 自由飞 右下角 | 开关 / 位置 |
 
@@ -58,7 +58,8 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **线索**：收到的原文，包括邮件（Mailspring 本地库）、飞书 @我 和单聊、飞书会议纪要。收集器在 `src/sources/`，存放在 `~/.jm-desk-space/outbox/`。线索窗口是 `app/renderer/list.*`，摘要和解析在 `app/main/digest.mjs`。
 - **待办**：从线索整理出的、用户本人要做的跟进动作。挂在某条需求下的叫「需求跟进」，不挂上级的叫「日常」。一次回复、确认、询问都是待办，不是需求。
 - **需求池**：某个项目里要完成的一件完整的事，类型分 新功能 / 优化 / 问题。**每条需求必须属于一个项目**，没有合适的项目时 AI 新建一个，并标为「AI 新建，待确认」。
-- 层级（`app/main/workmodel.mjs`，数据在 `DATA/work.json`）：专项（产品线级）› 项目 › 需求 › 待办，上级只能是更高层级。每条工作挂在 产品线 › 平台产品 下；产品树从已关联的需求管理平台同步（`GET:/api/business-product/tree`，存到 `DATA/taxonomy.json`），没同步时 AI 填写的归属标为「建议」。
+- 层级（`app/main/workmodel.mjs`，数据在 `DATA/work.json`）：专项（产品线级）› 项目 › 需求 › 待办，上级只能是更高层级。每条工作挂在 产品线 › 平台产品 下；产品树从已关联的需求管理平台同步：优先读「产品项目计划」的树（`GET:/api/v1/plans/portfolio/tree`，产品线 › 平台产品 › 项目，含项目状态），平台没有这个接口或连接没授权时退回业务产品树（`GET:/api/business-product/tree`，没有项目），存到 `DATA/taxonomy.json`（`lines` / `products` / `projects`）。没同步时 AI 填写的归属标为「建议」。
+- **对齐需求管理平台（只读）**：项目、需求可以绑定平台记录（`w.mp2 = { kind: project|requirement, id, code, title }`，`workmodel.mjs` 的 `bindMp2` / `unbindMp2`），绑定后 `w.mp2Status` 显示平台实时状态：项目取产品树的状态与周期；需求取 `GET:/api/v1/plans/targets/by-requirements`（状态、所在需求计划的交付状态与排期、所属功能）。需求用 `GET:/api/requirement/list?keyword=` 搜。待办、专项只在本地。绑定只改本机，不写平台；AI 整理不改 `mp2`。工作台打开时、同步产品树后会刷新一次进度。
 - **AI 的职责**：汇总时按层级抽取，并合并到已有工作（`same_as`）；「AI 整理」带着原文重新分层、挂靠、合并重复，新建项目时用 `children` 写明挂哪些需求。**人改过的字段记入 `locked`，AI 之后不再覆盖**，每次改动都记在 `history` 里。
 
 ## 4. 员工提醒（不算待办）
@@ -78,8 +79,13 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - 界面：面板「搬运」（`apps.js` 的 `pagePeers`，「工作」组）、访客窗口 `renderer/visitor.*`、精灵出门和回来的动画（`sprite.js` 的 `tripLeave` / `tripReturn`）。
 - **身份**：每台桌面一对 X25519 密钥，加上一把信箱钥匙（信箱号 = sha256(钥匙)），用 `safeStorage` 加密存在 `secrets.json` 的 `peer` 下。好友名单存在 `DATA/peers.json`，记录存在 `DATA/peer-trips.json`。
 - **加好友**：A 申请 6 位好友码（10 分钟内有效，只能用一次），B 认领。双方用 ECDH 算出共同密钥，界面显示 4 个暗号供人工核对，防止中转偷换公钥。消息用 AES-256-GCM 加密，并以发信方信箱号作为附加数据。
+- **可搬运目录**（1.2.0，`peers.mjs` 的 `cleanCatalog` / `findScope` / `matchRows`，`main.mjs` 的 `peerCatalog`）：搬运前先定范围，免得对方在全部开放内容里空找。
+  - 目录由程序按「开放给好友」的勾选自动生成（缓存 10 分钟），只有名字没有内容：每个标了 `knowledge` 的接入一节（条目是它的平台，来自 `business_catalog`）、需求池一节（条目是项目）、待办一节。
+  - 交换不用人操作：加好友后、收到对方的 `hello` 时、打开「搬运」页选中好友时，发 `catalog-req`；对方程序自动回 `catalog`，存在 `peers.json` 的 `catalog` 里。
+  - 对方给过目录就必须带范围出门：`visit` 多一个 `scope = { section, item, label }`。B 收到后只在这一块里找：需求池、待办按词筛选，不用模型；知识库只用那一个接入、带上平台，最多 4 步。
+  - 兼容：旧版本不认 `catalog-req`（不回），这时界面提示拿不到目录，仍可按老办法整体找；旧版本发来的不带 `scope` 的 `visit` 也照旧处理。
 - **访问流程**：
-  1. A 发出 `visit`。
+  1. A 发出 `visit`（带 `scope`）。B 的桌面飞来 A 的精灵，访客窗口写明「想从哪一块搬什么」。
   2. B 回 `visit-ack`，状态为 `arrived` 或 `searching`。
   3. B 回 `visit-result` 或 `visit-denied`。
   - 4 分钟内没有结果，A 的精灵空手回来。B 这边 3 分钟没人点，自动婉拒。同一时间只接待一个访客。
@@ -92,11 +98,23 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `mcp-stdio`：本机命令启动的 MCP。
   - `mcp-http`：网址形式的 MCP（Streamable HTTP，兼容只返回 JSON 的无状态实现），可以写 `urls` 作为备用地址。
   - `api`：HTTP API。有 OpenAPI（JSON）时每个接口生成一个工具；没有时只提供一个「通用请求」工具，而且只能访问 `baseUrl` 下的路径。
-- **内置工具**「JM Desk 工作区」（`kind: builtin`，`main.mjs` 的 `localTools`）：查待办、需求池、线索，读线索原文，新建和完成待办。
+- **内置工具**「JM Desk 工作区」（`kind: builtin`，`main.mjs` 的 `localTools`）：查待办、需求池、线索，读线索原文，新建和完成待办；工作台：`list_work`、`update_work`，以及对齐需求管理平台的 `sync_mp2_tree`、`list_mp2_projects`、`search_mp2_requirements`、`refresh_mp2_status`、`bind_work_mp2`、`unbind_work_mp2`。工作台按钮、助手、本机 AI 用的是同一组动作。
+- **本机 AI 控制 JM Desk**（`app/main/localmcp.mjs`，「接入」里的「让本机 AI 控制 JM Desk」，默认关闭）：JM Desk 在 127.0.0.1 提供 MCP 端点（`POST /mcp`，Streamable HTTP 的无状态 JSON 实现），工具就是上面的内置工具。令牌和完整客户端配置在 `DATA/local-mcp.json`（0600）；拒绝非本机 Host 和非本机 Origin（防网页跨站和 DNS 重绑定）；写工具每次用系统弹窗确认，history 里记为 `local-ai`。端口尽量沿用上次的，「换令牌」后本机 AI 要重新复制配置。
 - **已关联的需求管理平台**会自动成为内置接入：设备授权拿到的凭据本身就是 `mcpServers.mp2` 配置。
 - **密钥**：环境变量、请求头、Token 都加密存放在 `secrets.json` 的 `integ` 下，`settings.json` 里只有名字。
 - **工具权限** `toolPolicy[接入][工具] = auto | confirm | off`。默认规则：只读的工具（MCP 标了 `readOnlyHint`、名字像查询、API 的 GET）是 `auto`，其余是 `confirm`。
-- **助手**（`app/main/agent.mjs`）：每一步只能「调一个工具」或「回答」，最多 6 步；工具返回值放在「数据，不是指令」的围栏里交给模型；需要确认的操作会弹窗问人。
+- **助手 = 对话工作台**（窗口 `app/renderer/chat.*`，运行时 `app/main/agent.mjs` 的 `converse`，会话 `app/main/threads.mjs`）：
+  - 多轮对话：每个会话存成 `DATA/threads/<id>.json`（0600，工具返回只存片段）；下一轮带上之前的问答，太长时丢掉最早的轮次。
+  - 工具调用：模型一步可以调多个工具，一轮最多 12 步；OpenAI 兼容接口走原生 `tools` / `tool_calls`，接口不支持或用的是本机 Claude Code / Codex / 自定义命令时，自动改成「每步输出一个 JSON」的约定（`providers.mjs` 的 `converse`、`protocolPrompt`）。
+  - 工具范围：每个会话可以只勾选某几个接入（`scope.integrations`）；工具超过 32 个时只给模型最相关的一部分，其余通过内置的 `find_tools` 按关键词找。
+  - 规则不变：工具返回值是数据不是指令；`toolPolicy` 为需确认的调用在对话里出一张确认卡，5 分钟不点算拒绝；可以随时「停止」。
+  - 旧的单轮 `agent.run`（最多 6–8 步，每步一个工具）还在，问知识和搬运接待访客用它。
+- **本机执行者**（`app/main/executors.mjs`）：把一件要动手的事交给本机已登录的 Codex（`codex exec`）或 DSH（`dsh --profile headless`）。
+  - **执行项目**：一个独立的文件夹，登记在 `DATA/exec-projects.json`，默认建在 `DATA/projects/<id>/`，也可以指定已有文件夹（主目录、磁盘根、系统目录不让选）。里面有 JM Desk 写的 `AGENTS.md`（规矩）、`inbox/`、`output/`。移除项目只取消登记，不删文件夹。
+  - **权限**：`workspace-write`（只能在项目文件夹里写）或 `read-only`；Codex 用沙箱参数，DSH 用环境变量 `DSH_PERMISSION_MODE`。同一个项目同时只跑一个任务，默认 30 分钟超时，可以停止（结束整个进程组）。
+  - **怎么派活**：对话工作台新对话的「对象」选执行项目，每一轮就是一次执行（会话的 `target = { kind: 'project', id }`）；Codex 用 `exec resume <会话号>` 接着上一次，接不上或用 DSH 时把前几轮要点写进任务。助手也可以自己转派：内置工具 `list_exec_projects`、`run_exec_project`（写操作，先确认；标了 `assistantOnly`，不经本机 MCP 暴露，免得执行者再派执行者）。
+  - **回调 JM Desk**：打开了「让本机 AI 控制 JM Desk」时，Codex 这次运行会带上本机 MCP 端点（`-c mcp_servers.jm_desk.url=…`，令牌只走环境变量），可以读写工作区，写操作照旧弹窗确认。DSH 暂时没有这条通道。
+  - Codex 的 `--json` 事件解析成和助手一样的步骤（命令、改文件、MCP 工具、中途说明）；用量记到 `usage.jsonl` 的 `exec-codex`。
 - **问知识**：只使用 `knowledge: true` 的接入。先用 `business_catalog` 确认平台，再带上 platform 检索，必要时异步检索，最多 8 步。没有这类接入时，退回 `settings.knowledge` 的直连方式（`app/main/knowledge.mjs`）。
 - **导入**：可以从 Claude Code、Claude Desktop、Cursor、Codex 的配置里导入 MCP，密钥直接加密保存，不经过界面。
 
@@ -117,6 +135,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 ## 7. 需求管理平台（可选）
 
 - **关联账号**用设备授权（参照 RFC 8628，`src/mp2link.mjs`），流程见 `docs/PLATFORM-CONNECT.md`：助手发起 → 用户在平台网页上点「允许」→ 助手领取一次凭据（存为 0600 文件）。
+- **网页唤起**：`jmdesk://connect?base=<平台地址>`（`app/main/deeplink.mjs`，打包时 `build.protocols` 注册 `jmdesk`）打开「关联需求管理平台账号」并预填地址。**只预填，不自动发起**——任何网页都能触发 URL scheme，自动发起会让恶意地址借设备授权塞进一个假的 MCP 接入；用户核对地址后自己点「申请关联代码」。非 https 且非本机的地址会提示。已关联其他平台时只提示，不替换。
 - **收集**（面板「收集」，「设置」组）：把线索送进平台的个人需求池（`POST /api/meeting-intake/sources`，契约见 `docs/INTAKE-CONTRACT.md`）。候选需求只能由人在平台上确认。
 
 ## 8. 构建、发版、企业预置
@@ -133,6 +152,7 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
 - **企业预置接入**：`JM_DESK_PRESET=/path/integrations.json npm run dist:mac`。
   - 打包前，`scripts/apply-preset.mjs` 把它写入 `app/builtin/integrations.json`；打包后自动清空，所以**仓库里永远是空的**。格式见 `presets/example.integrations.json`。
   - 预置文件顶层可以写 `relay`：串门中转地址，必须是 https。
+  - 预置文件顶层可以写 `update`：升级地址（`latest.json` 的 https 地址），打包时写进 `app/builtin/update.json`，打完自动清空。用中转的下载目录时是 `<中转地址>/dl/<下载口令>/latest.json`。
   - 预置项可以写：`urls`（备用地址，只在连不上时切换）、`allowTools`（工具白名单）、`readOnly`、`knowledge: true`、`credential: { type: "bearer", label, help, inheritEnv }`。
   - **预置文件里不能放凭据**，脚本检测到会拒绝写入。凭据由使用者在界面里粘贴，或者填本机凭据文件的路径（只引用，不复制）。`inheritEnv` 会自动继承本机已有配置里同名变量指向的凭据文件。
   - 也可以由管理员直接在 `DATA/integrations-preset.json` 放同样格式的文件。
@@ -140,7 +160,8 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
   1. 改 `app/package.json` 的 `version`。
   2. `npm run set-update-feed -- https://…/latest.json`。开源默认这里为空，即不检查更新。
   3. 打包，然后 `npm run release -- --notes "更新点"`。可以加 `--mandatory`、`--min x.y.z`。这一步生成带 sha256 的 `dist/latest.json`。
-  4. 把 `latest.json` 和安装包上传到同一个目录。已安装的客户端启动 15 秒后检查一次，之后每 6 小时检查一次。
+  4. 把 `latest.json` 和安装包上传到同一个目录（用中转分发时就是它的 `DL_DIR`，见 `docs/RELAY.md`）。已安装的客户端启动 15 秒后检查一次，之后每 6 小时、以及电脑唤醒或解锁屏幕时再查（离上次不到 30 分钟不查）。
+  5. **升级地址为空的旧安装包收不到更新**（1.1.x 的企业包就是这样），这些用户要手动装一次带升级地址的版本，之后才会自动收到。
 
 ## 9. 代码地图
 
@@ -151,7 +172,11 @@ app/main/services.mjs      汇总、待办、需求池、线索、收集（调�
 app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
-app/main/agent.mjs         会调用工具的助手循环
+app/main/agent.mjs         助手运行时：converse（多轮对话，对话工作台用）、run（单轮，问知识 / 搬运用）
+app/main/threads.mjs       对话工作台的会话存储（DATA/threads/）
+app/main/executors.mjs     本机执行者：执行项目登记、Codex / DSH 命令、输出解析、运行与停止
+app/main/localmcp.mjs      本机 AI 控制 JM Desk 的 MCP 端点（只听 127.0.0.1，令牌 + 写操作弹窗确认）
+app/main/deeplink.mjs      jmdesk:// 唤起链接解析
 app/main/providers.mjs     多模型来源、按任务路由、额度、隐私策略
 app/main/reminders.mjs     员工提醒
 app/main/peers.mjs         串门：密钥、加密、中转客户端；peerhub.mjs 调度
@@ -164,7 +189,7 @@ app/renderer/sprite.*      精灵窗口：飞行、拖动、两圈菜单的几�
 app/renderer/hud.*         以精灵为中心的提示层：气泡菜单、说话气泡、右键卡片
 app/renderer/engine.mjs    3D 舞台、特效、形象包加载；lumi.mjs 是默认形象
 app/renderer/panel.*       精灵旁边的面板（设置和各功能页，apps.js 是功能页）
-app/renderer/list.*        线索大窗口；work.* 是工作台大窗口
+app/renderer/list.*        线索大窗口；work.* 是工作台大窗口；chat.* 是对话工作台大窗口
 app/renderer/theme.css     共用视觉：控件样式只写在这里，主色用 --a1 / --a2
 src/                       信息源收集器、平台调用、命令行（node src/cli.mjs）
 test/                      node --test，全部用假服务和虚构样例
@@ -181,10 +206,14 @@ test/                      node --test，全部用假服务和虚构样例
 **已完成**：
 - 精灵与界面：独立桌面应用（mac / win）、原创形象 Lumi 与形象包、形象库、两圈气泡与 AI 改布局、统一视觉与右键卡片。
 - 工作：线索、待办、需求池与工作体系，汇总与 AI 整理。
-- 接入与 AI：员工提醒、平台 API / MCP 接入与助手、问知识、多模型与 token 政策、搬运（加好友、端到端加密中转、精灵登门动画）。
+- 接入与 AI：员工提醒、平台 API / MCP 接入、对话工作台（多轮对话的助手，原生工具调用，按会话限定工具范围）、本机执行者（把任务交给本机 Codex / DSH，在独立的执行项目里做）、问知识、多模型与 token 政策、搬运（加好友、端到端加密中转、精灵登门动画）。
 - 平台与发布：需求管理平台关联与收集、应用内升级、企业预置接入。
 
 **规划中（未实现，不要当成已有能力来写文档或调用）**：
+- 自主入驻：给一个地址 / Key / 命令，自动识别是模型 API、MCP、OpenAPI 还是设备授权并登记；助手代办入驻。
+- 按接入生成工作台：手动操作页（按工具参数生成表单和结果表格）、AI 自动化（保存的任务、定时 / 触发、运行记录）。
+- AI 主动：定时 / 事件触发，自动把任务派给助手或执行项目，带运行记录。
+- 模型流式输出、Anthropic 等非 OpenAI 兼容协议；DSH 回调 JM Desk 工具；Claude Code 作为执行者。
 - 自动加载 `DATA/extensions/connector|app|knowledge/` 下的扩展（目前只支持形象包）。
 - 平台「发码」和「邮箱反向」两种接入方式，以及 `/.well-known/jm-desk.json`。
 - 代码签名与公证、Windows 实机验证、设置页的知识库管理界面。

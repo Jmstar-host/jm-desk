@@ -9,7 +9,9 @@
  *   POST /v1/poll        { key, wait }                  → { messages: [...] }    key 的 sha256 就是信箱号；最多等 wait 秒（≤25）
  * 信箱号 box = sha256(key)：只有持有 key 的一方能取信，别人只能往里投。
  * 可选：DL_DIR=<目录> [DL_KEY=<口令>] [DL_REPO=<开源仓库 https 地址>] 时，GET /dl/[<口令>/] 是安装包下载页
- * （只读，只列 .dmg/.exe/.zip；按「安装包 / 源码（*-source.zip）/ 完整包」分区显示）。 */
+ * （只读，只列 .dmg/.exe/.zip；按「安装包 / 源码（*-source.zip）/ 完整包」分区显示）。
+ * 同一个目录里放了 latest.json（scripts/release.mjs 生成）时，GET /dl/[<口令>/]latest.json 就是应用内升级的地址：
+ * 已安装的 JM Desk 定时来读它，发现新版本就提示、下载同目录的安装包并校验 sha256。下载页顶部也会显示当前版本和更新点。 */
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -25,6 +27,7 @@ const clip = (s, n) => String(s ?? '').slice(0, n);
  * 设置 DL_KEY 时地址要带上它：/dl/<DL_KEY>/，不知道的人打不开。 */
 const DL_FILE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,120}\.(dmg|exe|zip)$/;
 function listDl(dir) { try { return fs.readdirSync(dir).filter(f => DL_FILE.test(f) && fs.statSync(path.join(dir, f)).isFile()).sort(); } catch { return []; } }
+const FEED = 'latest.json';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '', dlRepo = '' } = {}) {
@@ -33,6 +36,11 @@ export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '', 
     try { rest = decodeURIComponent(req.url.split('?')[0].slice(3)); } catch { return send(404, { error: 'not_found' }); }
     if (dlKey) { if (!rest.startsWith('/' + dlKey + '/') && rest !== '/' + dlKey) return send(404, { error: 'not_found' }); rest = rest.slice(dlKey.length + 1); }
     const name = rest.replace(/^\/+/, '');
+    if (name === FEED) { // 应用内升级读的版本文件：原样返回，不缓存
+      let body; try { body = fs.readFileSync(path.join(dlDir, FEED)); JSON.parse(body); } catch { return send(404, { error: 'not_found' }); }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    }
     if (!name) { // 下载页
       const base = dlKey ? `${encodeURIComponent(dlKey)}/` : '';
       const files = listDl(dlDir), mb = f => (fs.statSync(path.join(dlDir, f)).size / 1048576).toFixed(1);
@@ -40,9 +48,11 @@ export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '', 
       const li = f => `<li><a href="${base}${encodeURIComponent(f)}">${esc(f)}</a> <small>${esc(hint(f))} · ${mb(f)} MB</small></li>`;
       const sec = (title, list, note = '') => list.length || note ? `<h3>${title}</h3><ul>${list.map(li).join('')}${note}</ul>` : '';
       const apps = files.filter(f => /\.(dmg|exe)$/.test(f)), src = files.filter(f => /source\.zip$/.test(f)), full = files.filter(f => /\.zip$/.test(f) && !src.includes(f));
+      let latest = ''; // 当前版本和更新点（来自 latest.json，没有就不显示）
+      try { const j = JSON.parse(fs.readFileSync(path.join(dlDir, FEED), 'utf8')); if (j?.version) latest = `<p><b>当前版本 ${esc(clip(j.version, 20))}</b>${j.date ? ` <small>${esc(clip(j.date, 20))}</small>` : ''}</p>${Array.isArray(j.notes) && j.notes.length ? `<ul>${j.notes.slice(0, 10).map(n => `<li><small>${esc(clip(n, 200))}</small></li>`).join('')}</ul>` : ''}`; } catch {}
       const repo = /^https:\/\/[^\s"<>]+$/.test(dlRepo) ? `<li><a href="${esc(dlRepo)}">${esc(dlRepo)}</a> <small>开源仓库（MIT）</small></li>` : '';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
-      return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>JM Desk 下载</title><style>body{font:15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:600px;margin:48px auto;padding:0 16px;color:#2e1f40}a{color:#7c3aed}li{margin:10px 0}small{color:#888}h3{margin:28px 0 4px;font-size:15px}</style><h2>JM Desk 下载</h2>${sec('安装包', apps)}${sec('源码（开源）', src, repo)}${sec('完整包', full)}${files.length ? '' : '<p>暂无文件</p>'}<p><small>Mac 第一次打开要在「应用程序」里右键 → 打开（安装包没有签名）。不知道是哪种芯片：左上角苹果菜单 → 关于本机。</small></p>`);
+      return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>JM Desk 下载</title><style>body{font:15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:600px;margin:48px auto;padding:0 16px;color:#2e1f40}a{color:#7c3aed}li{margin:10px 0}small{color:#888}h3{margin:28px 0 4px;font-size:15px}</style><h2>JM Desk 下载</h2>${latest}${sec('安装包', apps)}${sec('源码（开源）', src, repo)}${sec('完整包', full)}${files.length ? '' : '<p>暂无文件</p>'}<p><small>Mac 第一次打开要在「应用程序」里右键 → 打开（安装包没有签名）。不知道是哪种芯片：左上角苹果菜单 → 关于本机。</small></p>`);
     }
     if (!DL_FILE.test(name) || !listDl(dlDir).includes(name)) return send(404, { error: 'not_found' });
     const file = path.join(dlDir, name), st = fs.statSync(file);

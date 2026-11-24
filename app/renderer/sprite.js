@@ -352,6 +352,7 @@ $('stage').addEventListener('contextmenu', e => {
     items: [
       { id: 'roam', icon: 'wing', label: '自由活动', toggle: roamOn },
       { id: 'app.work', icon: 'chart', label: '工作台' },
+      { id: 'app.agent', icon: 'magic', label: '助手（对话）' },
       { id: 'app.reminders', icon: 'bell', label: '提醒' },
       { id: 'app.character', icon: 'smile', label: '换形象' },
       { id: 'app.settings', icon: 'sliders', label: '设置' },

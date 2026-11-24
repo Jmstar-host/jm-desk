@@ -49,3 +49,43 @@ test('下载：sha256 一致才保留；不一致删除并报错；已下载过�
   await assert.rejects(u.download(fetchOk, { ...info, sha256: 'b'.repeat(64) }, dir), /校验不通过/);
   assert.deepEqual(fs.readdirSync(dir), [], '校验失败不留文件');
 });
+
+/* ---------- 版本更新触达：中转的下载目录就是升级地址；企业升级地址只在打包时注入 ---------- */
+test('中转提供 latest.json：应用按它发现新版本，安装包地址落在同一个带口令的目录下并能下载、校验', async () => {
+  const { createRelay } = await import('../relay/server.mjs');
+  const { default: crypto } = await import('node:crypto');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmdl-feed-')), dmg = 'JM Desk-9.9.9-arm64.dmg', bytes = Buffer.from('new-version-bytes');
+  fs.writeFileSync(path.join(dir, dmg), bytes);
+  const srv = createRelay({ dlDir: dir, dlKey: 'k1' }); await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}/dl/k1/`;
+  try {
+    assert.equal((await fetch(base + 'latest.json')).status, 404, '还没放版本文件');
+    fs.writeFileSync(path.join(dir, 'latest.json'), JSON.stringify({ version: '9.9.9', date: '2026-12-01', notes: ['对话工作台'], files: { 'darwin-arm64': { url: encodeURIComponent(dmg), sha256: crypto.createHash('sha256').update(bytes).digest('hex'), size: bytes.length } } }));
+    assert.equal((await fetch(base.replace('/k1/', '/') + 'latest.json')).status, 404, '没带口令读不到');
+    const res = await fetch(base + 'latest.json'); assert.equal(res.status, 200); assert.match(res.headers.get('content-type'), /json/); assert.equal(res.headers.get('cache-control'), 'no-store');
+    const info = await u.check(fetch, { feedUrl: base + 'latest.json', current: '1.2.0', platform: 'darwin', arch: 'arm64' });
+    assert.equal(info.version, '9.9.9'); assert.equal(info.url, base + encodeURIComponent(dmg)); assert.deepEqual(info.notes, ['对话工作台']);
+    const got = await u.download(fetch, info, fs.mkdtempSync(path.join(os.tmpdir(), 'jmdl-got-')));
+    assert.equal(fs.readFileSync(got, 'utf8'), 'new-version-bytes');
+    assert.equal(await u.check(fetch, { feedUrl: base + 'latest.json', current: '9.9.9', platform: 'darwin', arch: 'arm64' }), null, '已经是最新');
+    assert.match(await (await fetch(base)).text(), /当前版本 9\.9\.9[\s\S]*对话工作台/, '下载页显示当前版本和更新点');
+    fs.writeFileSync(path.join(dir, 'latest.json'), '{ 坏的'); assert.equal((await fetch(base + 'latest.json')).status, 404, '坏的版本文件不外发');
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
+test('企业升级地址由预置文件在打包时写入，打完清空；手工设置的公开地址不受影响', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jmpreset-')); fs.mkdirSync(path.join(root, 'scripts')); fs.mkdirSync(path.join(root, 'builtin'));
+  fs.copyFileSync(new URL('../app/scripts/apply-preset.mjs', import.meta.url), path.join(root, 'scripts/apply-preset.mjs'));
+  const upd = path.join(root, 'builtin/update.json'), preset = path.join(root, 'p.json'), read = () => JSON.parse(fs.readFileSync(upd, 'utf8'));
+  const run = (args, env = {}) => spawnSync(process.execPath, [path.join(root, 'scripts/apply-preset.mjs'), ...args], { env: { ...process.env, ...env }, encoding: 'utf8' });
+  fs.writeFileSync(upd, JSON.stringify({ feed: '' }));
+  fs.writeFileSync(preset, JSON.stringify({ relay: 'https://relay.example.com/r', update: 'https://relay.example.com/r/dl/key/latest.json', integrations: [] }));
+  assert.equal(run([], { JM_DESK_PRESET: preset }).status, 0); assert.equal(read().feed, 'https://relay.example.com/r/dl/key/latest.json');
+  assert.doesNotMatch(run([], { JM_DESK_PRESET: preset }).stdout, /dl\/key/, '打包日志里不打印带口令的地址');
+  assert.equal(run(['--reset']).status, 0); assert.equal(read().feed, ''); assert.equal(read().fromPreset, undefined);
+  fs.writeFileSync(upd, JSON.stringify({ feed: 'https://public.example.com/latest.json' })); run(['--reset']);
+  assert.equal(read().feed, 'https://public.example.com/latest.json', '手工设置的地址保留');
+  fs.writeFileSync(preset, JSON.stringify({ update: 'http://insecure.example.com/latest.json', integrations: [] }));
+  assert.notEqual(run([], { JM_DESK_PRESET: preset }).status, 0, '非 https 拒绝');
+});

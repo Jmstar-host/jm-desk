@@ -63,13 +63,15 @@ async function arrive() {
   document.body.classList.add('landed'); mew.trick('wave');
   ipcRenderer.send('visitor:landed', V.id);
   await sleep(500);
-  if (V.trusted) say(`${V.name} 的精灵来串门`, `想找：${V.ask}（已信任，直接帮它找）`);
-  else say(`${V.name} 的精灵来串门`, `想找：${V.ask}`, [['帮它找', 'pri', () => decide(true)], ['请它回去', '', () => decide(false)]]);
+  // 让主人一眼看清：谁来的、想搬哪一块、具体要什么
+  const want = V.scope ? `想从「${V.scope}」里搬：${V.ask}` : `想找：${V.ask}`;
+  if (V.trusted) say(`${V.name} 的精灵来搬资料`, `${want}（已信任，直接帮它找）`);
+  else say(`${V.name} 的精灵来搬资料`, want, [['帮它找', 'pri', () => decide(true)], ['请它回去', '', () => decide(false)]]);
 }
 function decide(ok) { $('btns').replaceChildren(); ipcRenderer.send('visitor:decide', V.id, ok); }
 
 async function search() {
-  say('正在你这儿找…', V.ask); $('seek').classList.add('on'); mew.cast(true);
+  say(V.scope ? `正在「${V.scope}」里找…` : '正在你这儿找…', V.ask); $('seek').classList.add('on'); mew.cast(true);
   // 找东西时在原地附近转一转
   const c = { ...land };
   for (let i = 0; i < 2 && !leaving; i++) { await fly(c.x + (left ? -40 : 40), c.y - 20, 900); if (leaving) break; await fly(c.x, c.y, 900); }

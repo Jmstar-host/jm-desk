@@ -238,7 +238,8 @@ export async function loadSpec(src, fetchImpl = fetch) {
 }
 
 /* ---------- 工具权限 ---------- */
-export function modeOf(tool, policy = {}) { return policy[tool.name] || (tool.write === false || tool.dynamic ? 'auto' : 'confirm'); }
+/* auto：内置工具里用户选了「AI 自动回写」的写操作（D87），助手直接执行；用户仍可在接入的工具权限里改成确认 */
+export function modeOf(tool, policy = {}) { return policy[tool.name] || (tool.write === false || tool.dynamic || tool.auto ? 'auto' : 'confirm'); }
 export function needsConfirm(tool, args, mode) {
   if (mode === 'off') return 'off';
   if (mode === 'confirm') return true;

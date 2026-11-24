@@ -59,11 +59,24 @@ body.win #top{padding-left:18px}
 .src{padding:8px 10px;border-radius:12px;background:#fff;margin:6px 0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.9)}.src:hover{box-shadow:inset 0 0 0 1px var(--a1)}
 .src small{color:var(--sub)}.hist{font-size:11.5px;color:var(--sub);line-height:1.7}
 .note{font-size:12px;color:var(--sub);line-height:1.6;margin:8px 0}
+/* D86：需求管理平台（MP2）绑定与进度 */
+.mp{flex:none;font-size:11px;padding:0 6px;border-radius:6px;background:rgba(37,99,235,.1);color:#1d4ed8;white-space:nowrap}
+.grp.pend{color:#9a3412}
+.sug{margin:8px 0;padding:8px 10px;border-radius:10px;background:rgba(124,58,237,.07);font-size:12.5px;line-height:1.6}.sug .sub{margin-left:4px}
+.mpbox{margin:12px 0;padding:10px 12px;border-radius:12px;background:#fff;box-shadow:inset 0 0 0 1px rgba(37,99,235,.18)}
+.mpbox .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}.mpbox .hd b{font-weight:650}
+.mpbox .st{font-size:12px;padding:0 8px;border-radius:999px;background:rgba(37,99,235,.1);color:#1d4ed8}
+.mpbox .st.miss{background:rgba(234,88,12,.12);color:#9a3412}
+.mpbox ul{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--ink);line-height:1.7}
+.mpbox .sub{font-size:12px;color:var(--sub);margin-top:4px}
+.mpbox .row2{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.mpbox .hit{display:flex;gap:8px;align-items:center;padding:5px 8px;border-radius:10px;cursor:default}.mpbox .hit:hover{background:rgba(37,99,235,.06)}
+.mpbox .hit span{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
 </style></head>
 <body>
 <div class="sky page-sky"><b style="left:46%;top:3%"></b><b style="left:93%;top:12%;animation-delay:1.6s"></b><b style="left:3%;top:88%;animation-delay:2.8s"></b><b style="left:70%;top:95%;animation-delay:.8s;width:6px;height:6px"></b></div>
 <div id="top"><div class="orb"></div><h1>工作台</h1><span id="sum" style="color:var(--sub);font-size:12px"></span><span class="sp"></span>
-  <button id="sync" title="从已关联的需求管理平台同步产品线和平台产品">同步产品树</button><button id="sigs">线索</button><button class="pri" id="reorg" title="让 AI 检查分层、挂靠和重复">AI 整理</button></div>
+  <button id="sync" title="从需求管理平台拉取产品线 › 平台产品 › 项目 › 需求（以平台为准），先推送待回写的改动，再让 AI 给本地还没对齐的工作出归入建议">从需求管理平台拉取</button><button id="sigs">线索</button><button class="pri" id="reorg" title="让 AI 检查分层、挂靠和重复">AI 整理</button></div>
 <div id="main">
   <div id="side"><div id="filters"><input id="q" placeholder="搜索工作…"><div class="chips" id="lvchips"></div><div class="chips" id="stchips"></div><div id="msg"></div></div><div id="items"></div></div>
   <div id="detail"><div class="empty">选一条工作看详情</div></div>

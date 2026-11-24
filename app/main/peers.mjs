@@ -83,3 +83,37 @@ export function scopeTools(tools, share = {}) {
     return false;
   });
 }
+
+/* ---------- 可搬运目录（1.2.0）----------
+ * 搬运前先说清楚搬哪一块：好友之间由程序自动交换一份「我能提供什么」的目录，出门时带上选好的范围，对方只在这个范围里找。
+ * 目录：[{ id, kind: knowledge | requirements | todos, name, items: [{ id, label, note? }] }]
+ *   knowledge    一个标了 knowledge 的接入，id = 'k:' + 接入 id；items 是它里面的平台 / 业务域（来自 business_catalog），没有就整库
+ *   requirements 需求池；items 是项目
+ *   todos        待办（只有标题和状态）
+ * 目录里只有名字，没有内容；只发给已经加了好友的桌面。范围 scope = { section, item?, label }。 */
+const clipS = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+export function cleanCatalog(sections) {
+  return (Array.isArray(sections) ? sections : []).slice(0, 12).map(s => ({
+    id: clipS(s?.id, 60), kind: ['knowledge', 'requirements', 'todos'].includes(s?.kind) ? s.kind : 'knowledge', name: clipS(s?.name, 30) || '知识库',
+    items: (Array.isArray(s?.items) ? s.items : []).slice(0, 120).map(i => ({ id: clipS(i?.id, 80), label: clipS(i?.label, 40) || clipS(i?.id, 40), ...(i?.note ? { note: clipS(i.note, 40) } : {}) })).filter(i => i.id),
+  })).filter(s => /^[A-Za-z0-9:_.-]{1,60}$/.test(s.id));
+}
+/* 知识库的 business_catalog 返回 → 平台列表。认 { platforms: [{ platform | name | id, … }] }，也认直接的数组；认不出就返回空（整库作为一个范围） */
+export function catalogItems(text) {
+  let j; try { if (typeof text === 'string') { const t = text.trim(), a = t.search(/[[{]/); j = JSON.parse(a >= 0 ? t.slice(a) : t); } else j = text; } catch { return []; }
+  const rows = Array.isArray(j) ? j : Array.isArray(j?.platforms) ? j.platforms : Array.isArray(j?.items) ? j.items : [];
+  return rows.map(r => typeof r === 'string' ? { id: r, label: r } : { id: clipS(r?.platform ?? r?.id ?? r?.name, 80), label: clipS(r?.display ?? r?.title ?? r?.name ?? r?.platform ?? r?.id, 40) }).filter(r => r.id).slice(0, 120);
+}
+export function findScope(sections, scope) {
+  const sec = (sections || []).find(s => s.id === scope?.section); if (!sec) return null;
+  if (scope.item == null || scope.item === '') return { section: sec, item: null };
+  const item = sec.items.find(i => i.id === String(scope.item)); return item ? { section: sec, item } : null;
+}
+export const scopeLabel = hit => hit ? `${hit.section.name}${hit.item ? ' › ' + hit.item.label : ''}` : '';
+export const cleanScope = sc => sc && typeof sc === 'object' && sc.section ? { section: clipS(sc.section, 60), item: sc.item == null || sc.item === '' ? null : clipS(sc.item, 80), label: clipS(sc.label, 80) } : null;
+/* 不用模型的检索：按「要搬的内容」里的词给每行打分（英文单词、中文相邻两字），返回命中的行；一个都没命中时返回空 */
+export function matchRows(rows, ask, text = r => r.title) {
+  const s = String(ask || '').toLowerCase(), terms = new Set([...(s.match(/[a-z0-9]{2,}/g) || [])]);
+  for (const run of s.match(/[\u4e00-\u9fff]{2,}/g) || []) for (let i = 0; i < run.length - 1; i++) terms.add(run.slice(i, i + 2));
+  return rows.map((r, i) => { const t = String(text(r) || '').toLowerCase(); let n = 0; for (const w of terms) if (t.includes(w)) n++; return { r, n, i }; }).filter(x => x.n > 0).sort((a, b) => b.n - a.n || a.i - b.i).map(x => x.r);
+}

@@ -103,8 +103,8 @@ export function verify(data, signals, { work = [], taxonomy } = {}) {
       title: clip(it.title, 40), summary: clip(it.summary, 120), who: clip(it.who, 20), owner: it.owner === 'me' || level === 'todo' ? 'me' : 'other',
       sids, source: byId.get(sids[0]).source_type, source_title: byId.get(sids[0]).title,
       lineId: line?.id || null, productId: prod?.id || null,
-      line: line?.path || clip(it.line, 40) || null, product: prod?.name || clip(it.product, 40) || null,
-      anchorSuggested: !!((it.line || it.product) && !line && !prod),
+      line: line?.path || null, product: prod?.name || null, // D87：只认 MP2 产品树里的名称；认不出的进「待归入」，由 AI 建议、人确认
+      anchorHint: !prod && (it.product || it.line) ? clip(it.product || it.line, 40) : null, anchorSuggested: false,
       deadline, deadline_quote: quote, deadline_verified: !!(deadline && quote && norm(quote).length >= 2 && norm(text).includes(norm(quote))),
       priority: PRI.includes(it.priority) ? it.priority : 'medium', parentRef: it.parent ? String(it.parent) : null, projectName: level === 'requirement' ? clip(it.project, 40) || null : null,
     };
@@ -146,7 +146,7 @@ export function verify(data, signals, { work = [], taxonomy } = {}) {
 /* ---------- 合并进工作列表 ---------- */
 const AI_FIELDS = ['level', 'type', 'title', 'summary', 'parentId', 'lineId', 'productId', 'line', 'product', 'anchorSuggested', 'deadline', 'deadline_quote', 'deadline_verified', 'priority', 'owner', 'who'];
 function applyAi(w, patch, now, why) {
-  const locked = new Set(w.locked || []), changed = [];
+  const locked = new Set([...(w.locked || []), ...(w.mp2 ? MP2_OWNED[w.mp2.kind] || [] : [])]), changed = []; // D87：MP2 记录的这些字段以 MP2 为准
   for (const k of AI_FIELDS) {
     if (!(k in patch) || locked.has(k) || patch[k] === undefined) continue;
     if (k === 'deadline' && w.deadline_verified && !patch.deadline_verified) continue; // 不用没依据的交期覆盖有依据的
@@ -205,7 +205,8 @@ export function applyReorg(work, data, { taxonomy, now = new Date().toISOString(
   const tax = taxonomy || { lines: [], products: [] }, byId = new Map(work.map(w => [w.id, w])), refMap = new Map(), log = [];
   const anchor = (lineName, prodName) => {
     const prod = findByName(tax.products, prodName), line = prod?.lineId ? tax.lines.find(l => l.id === prod.lineId) : findByName(tax.lines, lineName);
-    return { lineId: line?.id || null, productId: prod?.id || null, line: line?.path || clip(lineName, 40) || null, product: prod?.name || clip(prodName, 40) || null, anchorSuggested: !!((lineName || prodName) && !line && !prod) };
+    if (!prod && !line) return {}; // D87：认不出的名称不写，留给「待归入」
+    return { lineId: line?.id || null, productId: prod?.id || null, line: line?.path || null, product: prod?.name || null, anchorSuggested: false };
   };
   // 新建项目 / 专项（要有至少两条已有工作会挂上去）
   const want = new Map();
@@ -235,7 +236,7 @@ export function applyReorg(work, data, { taxonomy, now = new Date().toISOString(
   }
   for (const c of (Array.isArray(data?.changes) ? data.changes : []).slice(0, 30)) {
     const w = byId.get(String(c?.id)); if (!w || w.status !== 'open') continue;
-    if (c.same_as && byId.has(c.same_as) && c.same_as !== w.id && byId.get(c.same_as).level === w.level && !(w.locked || []).includes('status')) {
+    if (c.same_as && byId.has(c.same_as) && c.same_as !== w.id && byId.get(c.same_as).level === w.level && !(w.locked || []).includes('status') && !w.mp2) {
       const keep = byId.get(c.same_as); keep.sids = [...new Set([...(keep.sids || []), ...(w.sids || [])])];
       for (const ch of work) if (ch.parentId === w.id) ch.parentId = keep.id;
       w.status = 'dropped'; w.mergedInto = keep.id; w.updatedAt = now; (w.history ||= []).push({ at: now, by: 'ai', fields: ['merged'], note: `与「${keep.title}」重复` });
@@ -260,17 +261,19 @@ export function applyReorg(work, data, { taxonomy, now = new Date().toISOString(
 }
 
 /* ---------- 人工修改：改过的字段锁定，AI 之后不再覆盖 ---------- */
-export function editItem(work, id, patch, now = new Date().toISOString()) {
+export function editItem(work, id, patch, now = new Date().toISOString(), by = 'me') {
   const w = work.find(x => x.id === id); if (!w) throw new Error('没有这条工作');
   const changed = [];
+  const ro = w.mp2 ? MP2_OWNED[w.mp2.kind].filter(k => !MP2_EDITABLE[w.mp2.kind].includes(k) && !(k === 'product' && MP2_EDITABLE[w.mp2.kind].includes('productId')) && !(k === 'line' || k === 'lineId') && !(w.mp2.kind === 'project' && k === 'parentId')) : [];
   for (const [k, v] of Object.entries(patch || {})) {
+    if (ro.includes(k) && !sameVal(w[k], v)) throw new Error(`这条工作对应需求管理平台的 ${w.mp2.code || '#' + w.mp2.id}，${MP2_READONLY_HINT[k] || k}以平台为准，不能在这里改`);
     if (k === 'level' && !LEVELS[v]) throw new Error('层级不对');
     if (k === 'type' && v && !REQ_TYPES[v]) throw new Error('需求类型不对');
     if (k === 'status' && !STATUS[v]) throw new Error('状态不对');
     if (k === 'parentId' && v) { const p = work.find(x => x.id === v); if (!p || p.id === id || LEVELS[p.level].n >= LEVELS[patch.level || w.level].n) throw new Error('上级只能是更高层级的工作'); }
     if (!['level', 'type', 'title', 'summary', 'parentId', 'line', 'product', 'lineId', 'productId', 'status', 'deadline', 'priority', 'owner'].includes(k)) continue;
     if (JSON.stringify(w[k] ?? null) === JSON.stringify(v ?? null)) continue;
-    w[k] = typeof v === 'string' ? clip(v, k === 'summary' ? 200 : 60) : v; changed.push(k);
+    w[k] = typeof v === 'string' ? clip(v, k === 'summary' ? (w.mp2 ? 4000 : 200) : k === 'title' && w.mp2?.kind === 'requirement' ? 200 : 60) : v; changed.push(k);
   }
   if (!changed.length) return w;
   if (changed.includes('level') && w.level !== 'requirement') w.type = null;
@@ -278,22 +281,27 @@ export function editItem(work, id, patch, now = new Date().toISOString()) {
   if (changed.includes('status') && w.status === 'done') w.doneAt = now;
   const lock = changed.filter(k => k !== 'status'); if (lock.length) w.locked = [...new Set([...(w.locked || []), ...lock])];
   if (changed.some(k => ['line', 'product'].includes(k))) w.anchorSuggested = false;
-  w.needsReview = false; w.updatedAt = now; (w.history ||= []).push({ at: now, by: 'me', fields: changed }); w.history = w.history.slice(-20);
+  if (changed.some(k => ['line', 'product', 'productId'].includes(k))) delete w.mp2Suggest;
+  w.needsReview = false; w.updatedAt = now; (w.history ||= []).push({ at: now, by, fields: changed }); w.history = w.history.slice(-20);
   for (const c of work) { if (c.parentId === w.id && LEVELS[w.level].n >= LEVELS[c.level].n) c.parentId = null; }
   return w;
 }
 
 /* ---------- 给界面：树（产品线 › 平台产品 › 工作上下级） ---------- */
-export function tree(work, { status = 'open' } = {}) {
+export function tree(work, { status = 'open', taxonomy = null } = {}) {
   const list = work.filter(w => status === 'all' || w.status === status || (status === 'open' && work.some(c => c.parentId === w.id && c.status === 'open')));
   const ids = new Set(list.map(w => w.id)), kids = new Map();
   for (const w of list) { const p = w.parentId && ids.has(w.parentId) ? w.parentId : null; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(w); }
   const sortFn = (a, b) => LEVELS[a.level].n - LEVELS[b.level].n || (a.deadline || '9').localeCompare(b.deadline || '9') || PRI.indexOf(a.priority) - PRI.indexOf(b.priority);
   const build = w => ({ ...w, children: (kids.get(w.id) || []).sort(sortFn).map(build) });
   const groups = new Map();
+  // D87：按 MP2 的平台产品分组（标签 = 产品线路径 › 平台产品）；不在产品树里的进「待归入」
+  const prods = taxonomy?.products || [];
   for (const w of (kids.get(null) || []).sort(sortFn)) {
-    const key = (w.line || '') + '›' + (w.product || ''), label = [w.line, w.product].filter(Boolean).join(' › ') || '未归属产品线';
-    if (!groups.has(key)) groups.set(key, { key, label, suggested: !!w.anchorSuggested, items: [] });
+    const prod = prods.length ? prods.find(p => p.id === w.productId) || (w.product && prods.find(p => p.name === w.product)) : null;
+    const key = prods.length ? (prod ? prod.id : '›') : (w.line || '') + '›' + (w.product || '');
+    const label = prod ? [prod.path, prod.name].filter(Boolean).join(' › ') : prods.length ? '待归入需求管理平台' : [w.line, w.product].filter(Boolean).join(' › ') || '未归属产品线';
+    if (!groups.has(key)) groups.set(key, { key, label, pending: !prod && !!prods.length, suggested: !!w.anchorSuggested, items: [] });
     groups.get(key).items.push(build(w));
   }
   const counts = Object.fromEntries(Object.keys(LEVELS).map(l => [l, list.filter(w => w.level === l && w.status === 'open').length]));
@@ -303,4 +311,308 @@ export function breadcrumb(work, w) {
   const out = []; let p = w && work.find(x => x.id === w.parentId), guard = 0;
   while (p && guard++ < 6) { out.unshift({ id: p.id, level: p.level, title: p.title }); p = work.find(x => x.id === p.parentId); }
   return out;
+}
+
+/* ---------- 对齐 MP2（D86，只读）：产品项目计划的树、绑定、进度回流 ----------
+ * 产品树改读 MP2「产品项目计划」左树（GET /api/v1/plans/portfolio/tree）：产品线 › 平台产品 › 项目。
+ * 结构与旧的 taxonomy 一致（lines / products），另加 projects，AI 提示与归属逻辑不用改。
+ * 本地「项目」「需求」可以绑定 MP2 记录（w.mp2 = { kind, id, code, title, … }），绑定后显示 MP2 的实时状态（w.mp2Status）。
+ * 「待办」「专项」只在本地。绑定是人或助手的明确动作，记入 history，AI 整理不会改动。 */
+export const MP2_PROJECT_STATE = { idle: '未开始', active: '进行中', done: '已上线', overdue: '已超期' };
+export const MP2_DELIVERY = { pending_design: '待设计', reviewing: '评审中', dev_pending: '待开发', dev_in_progress: '开发中', dev_done: '开发完成',
+  test_pending: '待测试', testing: '测试中', test_passed: '测试通过', acceptance_pending: '待验收', accepted: '验收通过', released: '已交付', blocked: '受阻', removed: '已移出' };
+
+export function flattenPortfolio(resp) {
+  const lines = [], products = [], projects = [];
+  const walk = (node, lineId) => {
+    const kind = String(node?.kind || '');
+    const path = [...(node.path || []), node.name].filter(Boolean).join(' › ');
+    if (kind === 'line') {
+      const id = `mp2:${node.key}`;
+      lines.push({ id, name: clip(node.name, 60), path, parentId: lineId });
+      for (const c of node.children || []) walk(c, id);
+    } else if (kind === 'product') {
+      const pid = `mp2:p:${node.product_id}`;
+      products.push({ id: pid, name: clip(node.name, 60), code: node.code || null, lineId, path: (node.path || []).join(' › ') || '未分产品线', mp2Id: node.product_id });
+      for (const c of node.children || []) if (c?.kind === 'project') projects.push({
+        id: `mp2:j:${c.project_id}`, mp2Id: c.project_id, name: clip(c.name, 60), code: c.code || null, productId: pid,
+        path: [...(c.path || [])].join(' › '), state: c.state || null, start: c.planned_start || null, end: c.planned_end || null,
+        revision: c.revision ?? null, requirementIds: Array.isArray(c.requirement_ids) ? c.requirement_ids.map(Number) : [] });
+    }
+  };
+  for (const n of resp?.nodes || []) walk(n, null);
+  return { source: 'mp2-portfolio', origin: resp?.origin || null, syncedAt: new Date().toISOString(), lines, products, projects };
+}
+
+/** 绑定：项目 → MP2 项目（来自产品树）；需求 → MP2 需求（来自搜索）。待办、专项不能绑定。 */
+export function bindMp2(work, id, ref, { taxonomy, now = new Date().toISOString(), by = 'me' } = {}) {
+  const w = work.find(x => x.id === id); if (!w) throw new Error('没有这条工作');
+  const kind = w.level === 'project' ? 'project' : w.level === 'requirement' ? 'requirement' : null;
+  if (!kind) throw new Error('只有项目和需求可以绑定需求管理平台的记录');
+  const mid = Number(ref?.id); if (!Number.isFinite(mid) || mid <= 0) throw new Error('请选择要绑定的需求管理平台记录');
+  let mp2;
+  if (kind === 'project') {
+    const p = (taxonomy?.projects || []).find(x => x.mp2Id === mid);
+    if (!p) throw new Error('产品树里没有这个项目，先「从需求管理平台拉取」');
+    const prod = (taxonomy.products || []).find(x => x.id === p.productId);
+    mp2 = { kind, id: mid, code: p.code, title: p.name, productId: prod?.mp2Id ?? null };
+    // 项目的产品线 / 平台产品跟着 MP2 走（人锁过的字段除外）
+    const locked = new Set(w.locked || []);
+    if (prod && !locked.has('product')) { w.product = prod.name; w.productId = prod.id; w.anchorSuggested = false; }
+    const line = prod && (taxonomy.lines || []).find(l => l.id === prod.lineId);
+    if (line && !locked.has('line')) { w.line = line.name; w.lineId = line.id; }
+  } else {
+    mp2 = { kind, id: mid, code: clip(ref.code, 40) || null, title: clip(ref.title, 80) || '' };
+  }
+  w.mp2 = { ...mp2, boundAt: now };
+  w.mp2Status = null;
+  w.updatedAt = now; (w.history ||= []).push({ at: now, by, fields: ['mp2'], note: `绑定需求管理平台 ${mp2.code || '#' + mid}` }); w.history = w.history.slice(-20);
+  return w;
+}
+
+export function unbindMp2(work, id, { now = new Date().toISOString(), by = 'me' } = {}) {
+  const w = work.find(x => x.id === id); if (!w) throw new Error('没有这条工作');
+  if (!w.mp2) return w;
+  const was = w.mp2.code || '#' + w.mp2.id;
+  delete w.mp2; delete w.mp2Status;
+  w.updatedAt = now; (w.history ||= []).push({ at: now, by, fields: ['mp2'], note: `解除绑定 ${was}` }); w.history = w.history.slice(-20);
+  return w;
+}
+
+/** 回流：项目状态取产品树，需求状态取 by-requirements。只写 mp2Status，不动本地字段。返回更新条数。 */
+export function applyMp2Status(work, { taxonomy, links = [], known = null, now = new Date().toISOString() } = {}) {
+  const byReq = new Map(links.map(l => [Number(l.requirement_id), l]));
+  let n = 0;
+  for (const w of work) {
+    if (!w.mp2) continue;
+    if (w.mp2.kind === 'project') {
+      const p = (taxonomy?.projects || []).find(x => x.mp2Id === w.mp2.id);
+      w.mp2Status = p ? { found: true, state: p.state, label: MP2_PROJECT_STATE[p.state] || '—', start: p.start, end: p.end, at: now }
+        : { found: false, label: '需求管理平台里找不到这个项目', at: now };
+    } else {
+      const l = byReq.get(w.mp2.id);
+      if (!l && known?.has(w.mp2.id)) { w.mp2Status = { ...(w.mp2Status || {}), found: true, plans: [], functions: [], at: now }; n++; continue; } // 拉到了这条需求，只是还没进需求计划
+      if (!l) { w.mp2Status = { found: false, label: '需求管理平台里找不到这条需求', at: now }; n++; continue; }
+      if (l.code) w.mp2.code = l.code;
+      if (l.title) w.mp2.title = clip(l.title, 80);
+      const plans = (l.plans || []).map(p => ({ code: p.plan_code, name: p.plan_name, delivery: p.delivery_status, label: MP2_DELIVERY[p.delivery_status] || p.delivery_status, start: p.planned_start || null, end: p.planned_end || null }));
+      w.mp2Status = { found: true, label: l.visible_status || REQ_STATUS[l.status] || l.status || '—', plans, functions: (l.functions || []).map(f => ({ id: f.id, title: f.title, via: f.via })), at: now };
+    }
+    n++;
+  }
+  return n;
+}
+
+/* ---------- 上传到需求管理平台（D87）：本地「需求」→ MP2 原始需求（POST /api/requirement），成功后自动绑定 ----------
+ * 只上传「需求」：项目、专项在 MP2 由产品项目计划维护，待办只在本地。来源固定写「JM Desk」，提出人 / 负责人由 MP2 按关联账号填。
+ * 描述用本地说明 + 依据的线索标题（不带原文，原文走「收集」送个人需求池）。平台产品来自 MP2 产品树时，挂到该平台产品（scope_type=product）。 */
+export const MP2_SOURCE = 'JM Desk';
+const MP2_PRIORITY = { high: 'P1', medium: 'P2', low: 'P3' };
+const MP2_REQ_TYPE = { feature: '产品需求', change: '优化', bug: '问题修复' };
+export function mp2RequirementDraft(work, id, { taxonomy, sources = [] } = {}) {
+  const w = work.find(x => x.id === id); if (!w) throw new Error('没有这条工作');
+  if (w.level !== 'requirement') throw new Error('只有「需求」可以上传到需求管理平台；项目请绑定平台上已有的项目');
+  if (w.mp2) throw new Error(`已经绑定 ${w.mp2.code || '#' + w.mp2.id}，不用重复上传`);
+  const title = clip(w.title, 200); if (!title) throw new Error('需求标题是空的');
+  const parent = w.parentId ? work.find(x => x.id === w.parentId) : null;
+  const lines = [clip(w.summary, 2000) || title];
+  if (parent) lines.push(`所属${LEVELS[parent.level]?.label || ''}：${parent.title}${parent.mp2?.code ? `（${parent.mp2.code}）` : ''}`);
+  if (w.who) lines.push(`提出人：${clip(w.who, 40)}`);
+  if (w.deadline) lines.push(`期望交付：${String(w.deadline).slice(0, 10)}${w.deadline_quote ? `（原话：${clip(w.deadline_quote, 30)}）` : ''}`);
+  const src = sources.filter(s => s?.title).slice(0, 8);
+  if (src.length) lines.push('依据：\n' + src.map(s => `- ${s.sourceLabel || ''}《${clip(s.title, 80)}》${s.at ? ' ' + String(s.at).slice(0, 10) : ''}`).join('\n'));
+  lines.push('（由 JM Desk 工作台上传）');
+  const body = { title, description: lines.join('\n'), source: MP2_SOURCE, priority: MP2_PRIORITY[w.priority] || 'P2' };
+  if (MP2_REQ_TYPE[w.type]) body.requirement_type = MP2_REQ_TYPE[w.type];
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(w.deadline || ''))) body.expected_date = String(w.deadline).slice(0, 10);
+  const prods = taxonomy?.products || [], prod = (w.product && prods.find(p => p.name === w.product)) || (w.productId && prods.find(p => p.id === w.productId)); // 名称优先：手改平台产品时 productId 可能是旧的
+  if (prod?.mp2Id) { body.scope_type = 'product'; body.scope_id = prod.mp2Id; body.business_project_id = prod.mp2Id; } // MP2 的关联负责范围按 business_project_id 判断
+  return body;
+}
+
+/* ---------- D87：工作台以 MP2 为准 ----------
+ * 拉取：MP2 的项目（产品树）和原始需求（全部）落成工作台的工作（id m2j_ / m2r_；已绑定的本地工作沿用原 id）。
+ *   项目下的需求按产品树项目节点的 requirement_ids 挂上去，其余挂在平台产品下（parentId 为空，按平台产品分组）。
+ *   MP2 管的字段（MP2_OWNED）每次拉取以 MP2 为准，记在 mp2Base；本地回写失败的字段（mp2Dirty）先保留本地值，等下次回写。
+ * 回写：只有 MP2_EDITABLE 里的字段能在 JM Desk 改并回写；层级、上级、状态由 MP2 的流程决定，在 JM Desk 只读。
+ * 待办、专项只在本地；本地还没对应 MP2 的项目 / 需求放在「待归入」，由 AI 建议（mp2Suggest）、人确认后绑定或新建。 */
+export const REQ_STATUS = { draft: '已录入', submitted: '待受理', accepted: '已受理', rejected: '退回补充', clarifying: '待澄清', clarified: '已澄清待排期', duplicated: '已重复关闭', archived: '已归档' };
+const REQ_CLOSED = new Set(['duplicated', 'archived']);
+const P_TO_LOCAL = { P0: 'high', P1: 'high', P2: 'medium', P3: 'low' };
+const TYPE_TO_LOCAL = { 产品需求: 'feature', 优化: 'change', 问题修复: 'bug' };
+export const MP2_OWNED = { project: ['level', 'title', 'deadline', 'status', 'product', 'productId', 'line', 'lineId'],
+  requirement: ['level', 'title', 'summary', 'priority', 'type', 'deadline', 'status', 'product', 'productId', 'line', 'lineId', 'parentId'] };
+export const MP2_EDITABLE = { project: ['title', 'deadline'], requirement: ['title', 'summary', 'priority', 'type', 'deadline', 'productId'] };
+export const MP2_READONLY_HINT = { level: '层级', parentId: '上级（需求在哪个项目里由需求管理平台的功能 / 需求计划决定）', status: '状态（由需求管理平台的流程推进）', product: '平台产品', line: '产品线' };
+
+/** MP2 平台产品 id → 工作台的产品线 / 平台产品字段 */
+export function anchorOfMp2Product(taxonomy, mp2ProductId) {
+  const prod = (taxonomy?.products || []).find(p => p.mp2Id === Number(mp2ProductId));
+  if (!prod) return { product: null, productId: null, line: null, lineId: null };
+  const line = (taxonomy.lines || []).find(l => l.id === prod.lineId);
+  return { product: prod.name, productId: prod.id, line: line?.path || prod.path || null, lineId: line?.id || null };
+}
+const sameVal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** 拉取结果并入工作台。requirements 为 null 时只并项目（需求没拉到）。返回 { added, updated, missing }。 */
+export function mergeMp2(work, { taxonomy, requirements = null, partial = false, now = new Date().toISOString() } = {}) {
+  const byKey = new Map(work.filter(w => w.mp2).map(w => [`${w.mp2.kind}:${w.mp2.id}`, w]));
+  let added = 0, updated = 0;
+  const upsert = (kind, mp2Id, mp2, fields, status) => {
+    let w = byKey.get(`${kind}:${mp2Id}`), isNew = false;
+    if (!w) {
+      w = { id: (kind === 'project' ? 'm2j_' : 'm2r_') + mp2Id, level: kind, type: null, title: '', summary: '', owner: 'other', sids: [], priority: 'medium', status: 'open',
+        origin: 'mp2', addedAt: now, updatedAt: now, history: [{ at: now, by: 'mp2', fields: ['created'], note: '从需求管理平台拉取' }] };
+      work.push(w); byKey.set(`${kind}:${mp2Id}`, w); isNew = true; added++;
+    }
+    w.mp2 = { ...(w.mp2 || {}), ...mp2, kind, id: mp2Id, boundAt: w.mp2?.boundAt || now };
+    if (status) w.mp2Status = { ...(w.mp2Status || {}), ...status, found: true, at: now };
+    const dirty = new Set(w.mp2Dirty || []), changed = [];
+    for (const [k, v] of Object.entries(fields)) {
+      if (dirty.has(k) || (k === 'product' && dirty.has('productId'))) continue; // 本地改了还没回写成功：先留本地值
+      if (isNew || !sameVal(w[k], v)) { w[k] = v; if (!isNew) changed.push(k); }
+    }
+    w.mp2Base = { ...fields };
+    w.anchorSuggested = false; w.needsReview = false; delete w.mp2Suggest;
+    if (changed.length && !isNew) { updated++; w.updatedAt = now; (w.history ||= []).push({ at: now, by: 'mp2', fields: changed, note: '需求管理平台有更新' }); w.history = w.history.slice(-20); }
+    return w;
+  };
+  const projectWork = new Map();
+  for (const p of taxonomy?.projects || []) {
+    const prod = (taxonomy.products || []).find(x => x.id === p.productId);
+    const w = upsert('project', p.mp2Id, { code: p.code, title: p.name, productId: prod?.mp2Id ?? null, revision: p.revision ?? null },
+      { level: 'project', title: clip(p.name, 60), deadline: p.end || null, status: p.state === 'done' ? 'done' : 'open', ...anchorOfMp2Product(taxonomy, prod?.mp2Id) },
+      { state: p.state, label: MP2_PROJECT_STATE[p.state] || '—', start: p.start, end: p.end });
+    if (w.status === 'done' && !w.doneAt) w.doneAt = now;
+    projectWork.set(p.mp2Id, w);
+  }
+  const projectOfReq = new Map();
+  for (const p of taxonomy?.projects || []) for (const rid of p.requirementIds || []) if (!projectOfReq.has(rid)) projectOfReq.set(rid, projectWork.get(p.mp2Id));
+  const seen = new Set((taxonomy?.projects || []).map(p => `project:${p.mp2Id}`));
+  if (Array.isArray(requirements)) {
+    for (const r of requirements) {
+      const id = Number(r.id); seen.add(`requirement:${id}`);
+      const parent = projectOfReq.get(id) || null, prev = byKey.get(`requirement:${id}`);
+      const keepLocalParent = !parent && prev?.parentId && work.find(x => x.id === prev.parentId && x.level === 'program'); // 专项只在本地，可以留着
+      const w = upsert('requirement', id, { code: r.code, title: clip(r.title, 80), productId: r.product_id ?? null },
+        { level: 'requirement', title: clip(r.title, 200), summary: String(r.description || '').slice(0, 4000), priority: P_TO_LOCAL[r.priority] || 'medium',
+          type: TYPE_TO_LOCAL[r.requirement_type] || prev?.type || 'feature', deadline: r.expected_date || r.deadline || null,
+          status: REQ_CLOSED.has(r.status) ? 'done' : 'open', parentId: parent ? parent.id : keepLocalParent ? prev.parentId : null, ...anchorOfMp2Product(taxonomy, r.product_id) },
+        { label: REQ_STATUS[r.status] || r.status || '—', status: r.status });
+      if (w.status === 'done' && !w.doneAt) w.doneAt = now;
+    }
+  }
+  let missing = 0;
+  for (const w of partial ? [] : work) { // partial：只并了一部分（刚上传 / 刚新建），不判断「找不到」
+    if (!w.mp2 || seen.has(`${w.mp2.kind}:${w.mp2.id}`)) continue;
+    if (w.mp2.kind === 'requirement' && !Array.isArray(requirements)) continue;
+    w.mp2Status = { ...(w.mp2Status || {}), found: false, label: '需求管理平台里已经找不到', at: now }; missing++;
+  }
+  foldMp2Duplicates(work);
+  return { added, updated, missing };
+}
+
+/** 同一条 MP2 记录对应了多条工作（本地工作刚绑定到已拉取的记录）：保留本地那条，拉取副本的下级、线索并过去后删掉副本。 */
+export function foldMp2Duplicates(work) {
+  const groups = new Map();
+  for (const w of work) if (w.mp2) { const k = `${w.mp2.kind}:${w.mp2.id}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(w); }
+  let folded = 0;
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const keep = list.find(w => w.origin !== 'mp2') || list[0];
+    for (const d of list) {
+      if (d === keep) continue;
+      for (const c of work) if (c.parentId === d.id) c.parentId = keep.id;
+      keep.sids = [...new Set([...(keep.sids || []), ...(d.sids || [])])];
+      if (!keep.mp2Base && d.mp2Base) { keep.mp2Base = d.mp2Base; for (const [k, v] of Object.entries(d.mp2Base)) keep[k] = v; }
+      if (d.mp2Status && !keep.mp2Status?.found) keep.mp2Status = d.mp2Status;
+      if (d.origin === 'mp2') work.splice(work.indexOf(d), 1);
+      else { d.status = 'dropped'; d.mergedInto = keep.id; delete d.mp2; delete d.mp2Base; }
+      folded++;
+    }
+  }
+  return folded;
+}
+
+/** 要回写 MP2 的改动：{ kind, id, fields, body } 或 null。项目的平台产品创建后固定，改了直接报错。 */
+export function mp2Patch(w, { taxonomy } = {}) {
+  if (!w?.mp2 || !w.mp2Base) return null;
+  const kind = w.mp2.kind, base = w.mp2Base;
+  const fields = MP2_EDITABLE[kind].filter(k => !sameVal(w[k], base[k]));
+  if (kind === 'project' && !sameVal(w.productId, base.productId)) throw new Error('项目的平台产品在需求管理平台创建后固定，不能改');
+  if (!fields.length) return null;
+  const body = {};
+  if (kind === 'requirement') {
+    for (const k of fields) {
+      if (k === 'title') body.title = clip(w.title, 200);
+      if (k === 'summary') body.description = String(w.summary || '').trim() || clip(w.title, 200);
+      if (k === 'priority') body.priority = MP2_PRIORITY[w.priority] || 'P2';
+      if (k === 'type' && MP2_REQ_TYPE[w.type]) body.requirement_type = MP2_REQ_TYPE[w.type];
+      if (k === 'deadline') { if (!/^\d{4}-\d{2}-\d{2}/.test(String(w.deadline || ''))) throw new Error('需求管理平台的期望交付日期不能清空，只能改成另一个日期（YYYY-MM-DD）'); body.expected_date = String(w.deadline).slice(0, 10); }
+      if (k === 'productId') {
+        const prod = (taxonomy?.products || []).find(p => p.id === w.productId);
+        if (!prod?.mp2Id) throw new Error('平台产品要从需求管理平台的产品树里选');
+        Object.assign(body, { scope_type: 'product', scope_id: prod.mp2Id, business_project_id: prod.mp2Id });
+      }
+    }
+  } else {
+    body.name = clip(w.title, 60); body.revision = w.mp2.revision ?? 0;
+    if (fields.includes('deadline')) { if (!/^\d{4}-\d{2}-\d{2}/.test(String(w.deadline || ''))) throw new Error('项目的计划结束日期不能清空'); body.planned_end = String(w.deadline).slice(0, 10); }
+  }
+  return { kind, id: w.mp2.id, fields, body };
+}
+/** 回写成功：这些字段的基线更新为本地值；项目记下新 revision。 */
+export function markMp2Pushed(w, patch, result, now = new Date().toISOString()) {
+  for (const k of patch.fields) { w.mp2Base[k] = w[k]; if (k === 'productId') { w.mp2Base.product = w.product; w.mp2Base.line = w.line; w.mp2Base.lineId = w.lineId; } }
+  if (patch.kind === 'project' && result?.revision != null) w.mp2.revision = result.revision;
+  if (patch.kind === 'requirement' && patch.fields.includes('productId')) w.mp2.productId = patch.body.business_project_id;
+  if (patch.fields.includes('title')) w.mp2.title = clip(w.title, 80);
+  w.mp2Dirty = (w.mp2Dirty || []).filter(k => !patch.fields.includes(k)); if (!w.mp2Dirty.length) delete w.mp2Dirty;
+  delete w.mp2Error; w.mp2PushedAt = now;
+}
+export function markMp2Failed(w, patch, message) {
+  w.mp2Dirty = [...new Set([...(w.mp2Dirty || []), ...patch.fields])]; w.mp2Error = clip(message, 200);
+}
+
+/* ---------- 待归入：AI 把本地还没对应 MP2 的工作映射到 MP2，人确认 ---------- */
+export function buildSuggestPrompt({ taxonomy, work }) {
+  const prods = (taxonomy?.products || []).map(p => `${p.mp2Id}｜${p.name}｜${p.path}`).join('\n');
+  const projs = (taxonomy?.projects || []).map(p => { const prod = taxonomy.products.find(x => x.id === p.productId); return `${p.mp2Id}｜${p.code || ''}｜${p.name}｜${prod?.name || ''}`; }).join('\n') || '（无）';
+  const reqs = work.filter(w => w.mp2?.kind === 'requirement' && w.status === 'open').slice(0, 300).map(w => `${w.mp2.id}｜${w.mp2.code || ''}｜${w.title}｜${w.product || ''}`).join('\n') || '（无）';
+  return `你在帮用户把本地记下的工作对齐到需求管理平台（MP2）。MP2 的结构是：产品线 › 平台产品 › 项目 › 需求。
+对下面每条本地工作，给出一个建议：
+- 本地「项目」：如果和 MP2 已有项目是同一件事，action=bind 并填 mp2_id（项目 id）；否则 action=create，product 填它该建在哪个平台产品下。
+- 本地「需求」：和 MP2 已有需求是同一件事就 action=bind（需求 id）；否则 action=create，product 填平台产品。
+- 本地「待办」「专项」：action=anchor，product 填它属于哪个平台产品（判断不了就 null）。
+只能用下面列出的平台产品、项目、需求；名称相近但不是同一件事时不要 bind。旧的产品线写法（如 IoT、eSIM）只是线索，要换成列出的平台产品。
+平台产品（id｜名称｜产品线）：
+${prods}
+MP2 项目（id｜编号｜名称｜平台产品）：
+${projs}
+MP2 需求（id｜编号｜标题｜平台产品）：
+${reqs}
+只输出 JSON：{"items":[{"id":"本地工作 id","action":"bind|create|anchor","mp2_id":数字或null,"product":"平台产品名称或 null","reason":"≤30字"}]}`;
+}
+export function packUnaligned(work) {
+  // 项目、需求都要对齐；待办、专项只有顶层且还没有平台产品的才要（挂在别的工作下的跟着上级走）
+  return work.filter(w => w.status === 'open' && !w.mp2 && !w.mp2Suggest && (['project', 'requirement'].includes(w.level) || (!w.parentId && !w.productId))).slice(0, 60)
+    .map(w => `${w.id}｜${LEVELS[w.level].label}｜${w.title}｜${clip(w.summary, 80)}｜旧归属:${w.line || ''}›${w.product || ''}`).join('\n');
+}
+export function applySuggest(work, data, { taxonomy, now = new Date().toISOString() } = {}) {
+  const byId = new Map(work.map(w => [w.id, w])), prods = taxonomy?.products || [];
+  const prodOf = name => prods.find(p => p.name === String(name || '').trim()) || findByName(prods, name);
+  let n = 0;
+  for (const s of Array.isArray(data?.items) ? data.items.slice(0, 60) : []) {
+    const w = byId.get(String(s?.id)); if (!w || w.mp2 || w.status !== 'open') continue;
+    const prod = prodOf(s.product), reason = clip(s.reason, 40);
+    let sug = null;
+    if (s.action === 'bind' && (w.level === 'project' || w.level === 'requirement')) {
+      const id = Number(s.mp2_id);
+      if (w.level === 'project') { const p = (taxonomy?.projects || []).find(x => x.mp2Id === id); if (p) sug = { action: 'bind', mp2Id: id, code: p.code, title: p.name }; }
+      else { const r = work.find(x => x.mp2?.kind === 'requirement' && x.mp2.id === id); if (r) sug = { action: 'bind', mp2Id: id, code: r.mp2.code, title: r.title }; }
+    } else if (s.action === 'create' && (w.level === 'project' || w.level === 'requirement') && prod) sug = { action: 'create', productMp2Id: prod.mp2Id, product: prod.name };
+    else if (s.action === 'anchor' && (w.level === 'todo' || w.level === 'program') && prod) sug = { action: 'anchor', productMp2Id: prod.mp2Id, product: prod.name };
+    if (sug) { w.mp2Suggest = { ...sug, reason, at: now }; n++; }
+  }
+  return n;
 }

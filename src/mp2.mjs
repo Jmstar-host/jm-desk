@@ -40,6 +40,11 @@ export function ready(cfg) { return !!(cfg.mp2?.baseUrl && cfg.mp2?.credentialFi
 const fail = (message, { status = null, code, final = false, stop = false, receiptId = null } = {}) =>
   Object.assign(new Error(message), { status, code, final, stop, receiptId });
 
+/* MP2 全局 Jackson SNAKE_CASE：调用体字段必须是 operation_id / request_id / run_id / depends_on。
+ * 驼峰的 operationId 会被忽略，MP2 当作空操作回 404 operation_not_found（2026-11-24 对本机 MP2 实测）。 */
+const WIRE = { operationId: 'operation_id', requestId: 'request_id', runId: 'run_id', dependsOn: 'depends_on' };
+export const wire = payload => Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined).map(([k, v]) => [WIRE[k] || k, v]));
+
 /* 调一次 AI 通道，返回 { http, receipt, result, replayed }；HTTP 码以 receipt.http_status 为准 */
 async function call(cfg, payload, timeoutMs) {
   let res;
@@ -47,7 +52,7 @@ async function call(cfg, payload, timeoutMs) {
     res = await fetch(cfg.mp2.baseUrl.replace(/\/$/, '') + '/api/ai-access/call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + credential(cfg.mp2.credentialFile) },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(wire(payload)),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
@@ -139,4 +144,121 @@ export async function productTree(cfg) {
   const { http, receipt, result } = await call(cfg, { operationId: OP_PRODUCT_TREE, requestId: readId('tree') }, 30000);
   if (http >= 300 || receipt.status !== 'succeeded') throw rejectFromResult(http, receipt, result);
   return (result && typeof result.body === 'object' && result.body) || result || {};
+}
+
+/* ---------- 工作台对齐 MP2（D86，只读）：产品项目计划的树、需求搜索、需求的 MP2 进度 ---------- */
+export const OP_PORTFOLIO_TREE = 'GET:/api/v1/plans/portfolio/tree';
+export const OP_REQUIREMENT_LIST = 'GET:/api/requirement/list';
+export const OP_REQUIREMENT_LINKS = 'GET:/api/v1/plans/targets/by-requirements';
+
+async function read(cfg, operationId, { query, path, what, timeoutMs = 30000 } = {}) {
+  const { http, receipt, result } = await call(cfg, { operationId, query, path, requestId: readId(what || 'read') }, timeoutMs);
+  if (http >= 300 || receipt.status !== 'succeeded') throw rejectFromResult(http, receipt, result);
+  return (result && typeof result.body === 'object' && result.body) || result;
+}
+
+/** 产品项目计划左树：{ origin, nodes:[{ key, kind: line|product|project, name, code, path, product_id, project_id, state, planned_start, planned_end, children }] } */
+export async function portfolioTree(cfg) {
+  const r = await read(cfg, OP_PORTFOLIO_TREE, { what: 'portfolio-tree', timeoutMs: 60000 });
+  return { origin: r?.origin || null, nodes: Array.isArray(r?.nodes) ? r.nodes : [] };
+}
+
+/** 按关键词找 MP2 需求（编号或标题），最多 20 条：[{ id, code, title, status }] */
+export async function searchRequirements(cfg, keyword) {
+  const q = String(keyword || '').trim().slice(0, 80);
+  if (!q) return [];
+  const r = await read(cfg, OP_REQUIREMENT_LIST, { query: { keyword: q, page: 1, page_size: 20 }, what: 'req-search' });
+  const rows = Array.isArray(r) ? r : r?.records || r?.items || r?.list || r?.data || [];
+  return rows.slice(0, 20).map(x => ({ id: x.id, code: x.requirement_code || x.requirementCode || x.code || null, title: x.title || '', status: x.visible_status || x.status || null }))
+    .filter(x => x.id != null);
+}
+
+/** 需求在 MP2 的进度：[{ requirement_id, code, title, status, visible_status, functions:[…], plans:[{ plan_code, plan_name, delivery_status, planned_start, planned_end }] }] */
+export async function requirementLinks(cfg, ids) {
+  const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))].slice(0, 200);
+  if (!list.length) return [];
+  const r = await read(cfg, OP_REQUIREMENT_LINKS, { query: { requirementIds: list.join(',') }, what: 'req-links' });
+  return Array.isArray(r) ? r : [];
+}
+
+/* ---------- 上传到需求管理平台（D87）：本地需求 → MP2 原始需求 ----------
+ * 写操作。requestId 每次都新生成：重复的 requestId 只会回放旧回执、没有 result。
+ * MP2 标题唯一：重名时返回 code=title_duplicated，调用方改为搜索后绑定，不重复创建。 */
+export const OP_REQUIREMENT_CREATE = 'POST:/api/requirement';
+export async function createRequirement(cfg, body) {
+  const { http, receipt, result, replayed } = await call(cfg, { operationId: OP_REQUIREMENT_CREATE, body, requestId: readId('req-create'), task: 'JM Desk 工作台：把本地需求上传为原始需求' }, 30000);
+  if (replayed && result === undefined) throw fail('MP2 回放了旧回执，未拿到结果', { status: http, code: 'replayed_without_result', receiptId: receipt.id ?? null });
+  if (http >= 300 || receipt.status !== 'succeeded') {
+    const e = rejectFromResult(http, receipt, result);
+    if (/标题已存在|title.*(exist|duplicat)/i.test(`${e.message} ${result?.message || ''} ${result?.error || ''}`)) Object.assign(e, { code: 'title_duplicated', message: '需求管理平台已有同名需求' });
+    else if (/operation_not_granted/.test(e.message)) e.message = '这个关联没有「原始需求」的新建权限：到需求管理平台「AI 接入」里给这个连接勾上';
+    else if (/outside_responsibility_scope/.test(e.message)) e.message = '这条需求的平台产品不在这个关联的负责范围里：在工作台把平台产品改成负责范围内的，或到需求管理平台「AI 接入」调整负责范围';
+    else if (result?.message) e.message = `MP2 拒绝：${result.message}`;
+    throw e;
+  }
+  const r = (result && typeof result.body === 'object' && result.body) || result || {};
+  if (r.id == null) throw fail('MP2 成功回执但没有需求 id', { status: http, code: 'missing_id', receiptId: receipt.id ?? null });
+  return { id: r.id, code: r.requirement_code || r.requirementCode || null, title: r.title || body.title, status: r.visible_status || r.status || null, receiptId: receipt.id ?? null };
+}
+
+/* 关联的负责范围（D87）：MP2 只允许在这些平台产品下新建原始需求。经关联得到的 MCP 端点读 mp2_context（只读）。
+ * 返回 [{ id, name }]；空数组表示没有限定范围（任何平台产品都行）；凭据不是 MCP 配置时返回 null（未知）。 */
+export async function responsibility(cfg) {
+  let server;
+  try { const j = JSON.parse(fs.readFileSync(cfg.mp2.credentialFile, 'utf8')); server = j?.mcpServers?.mp2 || Object.values(j?.mcpServers || {})[0]; } catch { return null; }
+  if (!server?.url) return null;
+  let res;
+  try {
+    res = await fetch(server.url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(server.headers || {}) }, signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'mp2_context', arguments: { compact: true } } }) });
+  } catch (e) { throw fail(`MP2 连接失败：${e.message}`, { code: 'network_error' }); }
+  if (res.status === 401) throw fail('MP2 拒绝：unauthorized', { status: 401, code: 'unauthorized', stop: true });
+  const j = await res.json().catch(() => null), text = j?.result?.content?.[0]?.text;
+  let ctx; try { ctx = j?.result?.structuredContent?.connection ? j.result.structuredContent : JSON.parse(text); } catch { return null; }
+  const scope = ctx?.connection?.scope;
+  return Array.isArray(scope) ? scope.map(s => ({ id: Number(s.product_id), name: s.product_name || '' })).filter(s => Number.isFinite(s.id)) : null;
+}
+
+/* ---------- D87：工作台以 MP2 为准——拉取全部原始需求；回写需求 / 项目；新建项目 ---------- */
+export const OP_REQUIREMENT_UPDATE = 'PUT:/api/requirement/{id}';
+export const OP_PROJECT_CREATE = 'POST:/api/v1/plans/projects';
+export const OP_PROJECT_UPDATE = 'PUT:/api/v1/plans/projects/{id}';
+
+/** 全部原始需求（分页拉完，最多 limit 条）：[{ id, code, title, description, priority, status, product_id, expected_date, deadline, requirement_type, updated_at }] */
+export async function listRequirements(cfg, { pageSize = 200, limit = 5000 } = {}) {
+  const out = [];
+  for (let page = 1; out.length < limit; page++) {
+    const r = await read(cfg, OP_REQUIREMENT_LIST, { query: { page, page_size: pageSize }, what: 'req-all', timeoutMs: 60000 });
+    const rows = Array.isArray(r) ? r : r?.items || r?.records || [];
+    for (const x of rows) if (x?.id != null) out.push({ id: x.id, code: x.requirement_code || null, title: x.title || '', description: x.description || '', priority: x.priority || null,
+      status: x.status || null, product_id: x.business_project_id ?? null, expected_date: x.expected_date || null, deadline: x.deadline || null,
+      requirement_type: x.requirement_type || null, updated_at: x.updated_at || null });
+    const total = Number(r?.total);
+    if (rows.length < pageSize || (Number.isFinite(total) && out.length >= total)) break;
+  }
+  return out.slice(0, limit);
+}
+
+/* 写操作的统一处理：成功回执才算；把常见拒绝原因翻成人话 */
+async function write(cfg, operationId, { path, body, task }) {
+  const { http, receipt, result, replayed } = await call(cfg, { operationId, path, body, requestId: readId('w'), task }, 30000);
+  if (replayed && result === undefined) throw fail('MP2 回放了旧回执，未拿到结果', { status: http, code: 'replayed_without_result' });
+  if (http >= 300 || receipt.status !== 'succeeded') {
+    const e = rejectFromResult(http, receipt, result);
+    if (/operation_not_granted/.test(e.message)) e.message = '这个关联没有这项操作的权限：到需求管理平台「AI 接入」里给这个连接勾上';
+    else if (/outside_responsibility_scope/.test(e.message)) e.message = '平台产品不在这个关联的负责范围里';
+    else if (/revision|conflict|已被修改/i.test(e.message) || http === 409) e.message = `需求管理平台上这条记录刚被别人改过，先「从需求管理平台拉取」再改（${e.message}）`;
+    throw e;
+  }
+  return (result && typeof result.body === 'object' && result.body) || result || {};
+}
+/** 改原始需求：只送改动字段（MP2 对 null / 省略的字段保持原值）。 */
+export const updateRequirement = (cfg, id, body) => write(cfg, OP_REQUIREMENT_UPDATE, { path: { id }, body, task: 'JM Desk 工作台：回写需求修改' });
+/** 改平台研发项目：name 必填、带 revision；平台产品创建后固定。返回 ProjectSummary（含新 revision）。 */
+export const updateProject = (cfg, id, body) => write(cfg, OP_PROJECT_UPDATE, { path: { id }, body, task: 'JM Desk 工作台：回写项目修改' });
+/** 新建平台研发项目：{ business_project_id, name, description?, planned_start?, planned_end?, source: 'product' } */
+export async function createProject(cfg, body) {
+  const r = await write(cfg, OP_PROJECT_CREATE, { body, task: 'JM Desk 工作台：新建项目' });
+  if (r.id == null) throw fail('MP2 成功回执但没有项目 id', { code: 'missing_id' });
+  return r;
 }

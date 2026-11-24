@@ -13,7 +13,7 @@ JM Desk 的「搬运」会把用户本机收集到的线索（邮件、飞书消
 经平台的 AI 调用通道：`POST {base}/api/ai-access/call`，`Authorization: Bearer <关联账号时拿到的凭据>`。
 
 ```json
-{ "operationId": "POST:/api/meeting-intake/sources", "requestId": "jmdesk-<线索 id>-<第几次尝试>", "task": "把来源内容送入个人需求池",
+{ "operation_id": "POST:/api/meeting-intake/sources", "request_id": "jmdesk-<线索 id>-<第几次尝试>", "task": "把来源内容送入个人需求池",
   "body": {
     "source_type": "feishu_im | feishu_meeting | mail",
     "source_ref": "来源方唯一标识（≤255）",
@@ -26,6 +26,8 @@ JM Desk 的「搬运」会把用户本机收集到的线索（邮件、飞书消
   } }
 ```
 
+调用体的字段名用 snake_case（`operation_id`、`request_id`）：需求管理平台全局按 snake_case 解析，驼峰写法会被忽略并返回 `operation_not_found`。
+
 平台的处理要求：
 1. **校验**：`source_type` 只能是上面三个值；`source_ref`、`title`、`content` 必填；超长返回 400 `content_too_long`，不要静默截断。
 2. **幂等**：同一用户、同一 `source_type + source_ref` 已有批次时，返回原批次，并带 `duplicate: true`。
@@ -33,7 +35,7 @@ JM Desk 的「搬运」会把用户本机收集到的线索（邮件、飞书消
 4. **返回**：`{ "batch_id": 123, "status": "extracting", "duplicate": false }`。
 
 JM Desk 一侧的行为：
-- **重试**：每次尝试都换新的 `requestId`。只有回执成功、HTTP 码为 2xx、并且结果里带 `batch_id`，才算送达。
+- **重试**：每次尝试都换新的 `request_id`。只有回执成功、HTTP 码为 2xx、并且结果里带 `batch_id`，才算送达。
 - **按状态码处理**：
   - 401：停止本轮。
   - 400 / 403 / 413 / 422：标记失败，不再重试。

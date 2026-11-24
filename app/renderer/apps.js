@@ -222,32 +222,9 @@ async function pageUpdate(body) {
   body.append(box);
 }
 
-/* 助手：用已接入的平台 API 和 MCP 办事，每一步都显示出来 */
+/* 问知识的检索步骤：每一步都显示出来（助手已经搬到对话工作台 chat.*） */
 let agentStep = null;
 require('electron').ipcRenderer.on('agent:step', (_e, s) => { if (agentStep) agentStep(s); });
-async function pageAgent(body) {
-  const info = await ipcRenderer.invoke('svc:has-model', 'assistant'), tools = await call('agent:tools').catch(() => ({ count: 0, integrations: [] }));
-  const ta = h('textarea', { rows: 3, placeholder: '要办什么？例如：我还有哪些需求跟进的待办？' }), log = h('div'), out = h('div');
-  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) go.click(); });
-  const LABEL = { call: '调用', denied: '已拒绝', error: '提示', confirm: '等待你确认' };
-  agentStep = s => log.append(h('div', { class: 'li step' }, h('div', { class: 'lt' }, h('span', { class: 'tag' + (s.kind === 'call' ? (s.ok ? ' ok' : ' warn') : s.kind === 'denied' ? ' warn' : '') }, LABEL[s.kind] || s.kind), h('span', { class: 'st' }, s.tool || ''), s.ms ? h('span', { class: 'muted' }, `${(s.ms / 1000).toFixed(1)}s`) : null),
-    s.why ? h('div', { class: 'muted' }, s.why) : null, s.error ? h('div', { class: 'muted' }, s.error) : null,
-    s.result ? h('details', {}, h('summary', { class: 'muted' }, '看返回内容'), h('pre', { class: 'args' }, s.result)) : null));
-  const go = busyBtn('开始', 'pri', async () => {
-    if (!ta.value.trim()) return; log.replaceChildren(); out.replaceChildren();
-    try {
-      const r = await call('agent:ask', ta.value);
-      out.append(h('div', { class: 'card' }, h('h3', {}, r.incomplete ? '没有完成' : '回答'), h('div', { class: 'ans' }, r.answer),
-        r.steps.length ? h('div', { class: 'muted', style: 'margin-top:6px' }, `用了 ${r.steps.filter(s => s.kind === 'call').length} 次工具`) : null,
-        r.problems?.length ? h('div', { class: 'err' }, '部分接入没连上：' + r.problems.join('；')) : null));
-    } catch (e) { out.append(errBox(e)); }
-  });
-  body.append(h('div', { class: 'card' },
-    tools.count ? h('div', { class: 'muted' }, `可用 ${tools.count} 个工具（${tools.integrations.length} 个接入），改数据前会先问你。`)
-      : h('div', { class: 'err' }, '还没有可用的工具：去「设置 › 接入」添加。'),
-    info ? null : h('div', { class: 'err' }, '还没有可用的模型：设置 › 模型。'),
-    ta, h('div', { class: 'row' }, go, h('button', { onclick: () => ipcRenderer.send('panel:action', 'app.integrations') }, '管理接入'), h('span', { class: 'muted' }, '⌘/Ctrl + Enter'))), out, log);
-}
 
 /* 员工提醒：订饭、吃饭、下班……时间、星期、订餐页面都可以自己设 */
 async function pageReminders(body) {
@@ -291,7 +268,7 @@ async function pagePeers(body) {
   const inv = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
   const msg = h('div');
   const ST = { going: '飞过去了…', arrived: '到了，等对方开门', searching: '正在对方那里找', done: '回来了' };
-  let askDraft = '', pick = null;
+  let askDraft = '', pick = null, pickSec = null, pickItem = '', asked = new Set();
   async function draw() {
     const S = await ipcRenderer.invoke('peer:state');
     const cards = [];
@@ -302,21 +279,32 @@ async function pagePeers(body) {
       return box.replaceChildren(...cards);
     }
     // 出门中 / 来访中
-    for (const t of S.trips) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `${t.status === 'done' ? '🏠' : '🛸'} 去 ${t.peer} 那里`), h('div', {}, t.ask),
+    for (const t of S.trips) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `${t.status === 'done' ? '🏠' : '🛸'} 去 ${t.peer} 那里`), t.scope ? h('div', { class: 'muted' }, '范围：' + t.scope) : null, h('div', {}, t.ask),
       h('div', { class: 'muted' }, t.status === 'done' ? (t.result?.status === 'ok' ? '搬回来了，结果在下面' : '空手回来：' + (t.result?.note || '')) : ST[t.status] || t.status)));
-    for (const g of S.guests) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `👋 ${g.peer} 的精灵来了`), h('div', {}, g.ask),
+    for (const g of S.guests) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `👋 ${g.peer} 的精灵来了`), h('div', { class: 'muted' }, g.scope ? '想搬的范围：' + g.scope : '没有指定范围（对方是旧版本），会在你开放的全部范围里找'), h('div', {}, g.ask),
       g.status === 'arrived' ? h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:decide', g.id, true) }, '帮它找'), h('button', { onclick: () => inv('peer:decide', g.id, false) }, '请它回去')) : h('div', { class: 'muted' }, '正在帮它找…')));
     // 去搬运：总是在最前面；还没好友时也显示，引导先加好友
     {
       const has = S.peers.length > 0, goMsg = h('div');
       pick = S.peers.some(p => p.id === pick) ? pick : S.peers[0]?.id || null;
-      const sel = h('select', { disabled: !has, onchange: e => { pick = e.target.value; } }, ...(has ? S.peers.map(p => h('option', { value: p.id, selected: p.id === pick }, p.name)) : [h('option', {}, '还没有好友')]));
-      const ta = h('textarea', { rows: 3, placeholder: '要搬什么？例如：eIM 绑定失败的排查资料', oninput: e => { askDraft = e.target.value; } }); ta.value = askDraft;
+      const sel = h('select', { disabled: !has, onchange: e => { pick = e.target.value; pickSec = null; pickItem = ''; draw(); } }, ...(has ? S.peers.map(p => h('option', { value: p.id, selected: p.id === pick }, p.name)) : [h('option', {}, '还没有好友')]));
+      // 先选搬哪一块：目录由对方的 JM Desk 自动给（加好友后、打开这一页时各要一次），只有名字没有内容
+      const peer = S.peers.find(p => p.id === pick), secs = peer?.catalog?.sections || [];
+      if (peer && !asked.has(peer.id)) { asked.add(peer.id); inv('peer:catalog', peer.id).catch(() => {}); }
+      const sec = secs.find(x => x.id === pickSec) || secs[0] || null; pickSec = sec?.id || null;
+      if (sec && pickItem && !sec.items.some(i => i.id === pickItem)) pickItem = '';
+      const KIND = { knowledge: '知识库', requirements: '需求池', todos: '待办' };
+      const secSel = h('select', { style: 'flex:1;min-width:0', onchange: e => { pickSec = e.target.value; pickItem = ''; draw(); } }, ...secs.map(x => h('option', { value: x.id, selected: x.id === pickSec }, `${KIND[x.kind] === x.name ? '' : (KIND[x.kind] || '') + ' · '}${x.name}`)));
+      const itemSel = sec?.items.length ? h('select', { style: 'flex:1;min-width:0', onchange: e => { pickItem = e.target.value; } }, h('option', { value: '' }, sec.kind === 'knowledge' ? '整个知识库' : '全部'), ...sec.items.map(i => h('option', { value: i.id, selected: i.id === pickItem }, i.label + (i.note ? `（${i.note}）` : '')))) : null;
+      const ta = h('textarea', { rows: 3, placeholder: sec ? `要从「${sec.name}」里搬什么内容？写具体些，例如：绑定失败的排查步骤` : '要搬什么？例如：eIM 绑定失败的排查资料', oninput: e => { askDraft = e.target.value; } }); ta.value = askDraft;
       const busy = S.trips.some(t => t.status !== 'done');
+      const scopeRows = !peer ? [] : secs.length ? [h('div', { class: 'row' }, h('span', { class: 'muted' }, '搬哪块'), secSel), itemSel ? h('div', { class: 'row' }, h('span', { class: 'muted' }, '范围'), itemSel) : null]
+        : peer.catalog ? [h('div', { class: 'muted' }, '对方现在没有开放可以搬的内容。'), h('div', { class: 'row' }, h('button', { onclick: () => inv('peer:catalog', peer.id, true).catch(() => {}) }, '刷新目录'))]
+        : [h('div', { class: 'muted' }, '还没拿到对方的目录：对方不在线，或者版本低于 1.2.0。拿到之前只能让对方在全部开放范围里找，比较慢。'), h('div', { class: 'row' }, h('button', { onclick: async () => { try { await inv('peer:catalog', peer.id, true); goMsg.replaceChildren(h('div', { class: 'muted' }, '已经去要了，对方在线的话几秒钟就到')); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, '再要一次目录'))];
       cards.unshift(h('div', { class: 'card go' }, h('h3', {}, '去好友那里搬'),
-        h('div', { class: 'row' }, h('span', { class: 'muted' }, '找谁'), sel), ta,
-        h('div', { class: 'row' }, h('button', { class: 'pri', disabled: !has || busy, onclick: async () => { try { await inv('peer:visit', pick, ta.value); askDraft = ''; goMsg.replaceChildren(); draw(); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, busy ? '精灵出门中…' : '出发'),
-          h('span', { class: 'muted' }, has ? '好友同意后，精灵在他开放的范围里找' : '先在下面「加好友」')), goMsg));
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, '找谁'), sel), ...scopeRows, ta,
+        h('div', { class: 'row' }, h('button', { class: 'pri', disabled: !has || busy || (peer?.catalog && !secs.length), onclick: async () => { try { await inv('peer:visit', pick, ta.value, sec ? { section: sec.id, item: pickItem || null } : null); askDraft = ''; goMsg.replaceChildren(); draw(); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, busy ? '精灵出门中…' : '出发'),
+          h('span', { class: 'muted' }, !has ? '先在下面「加好友」' : sec ? '精灵飞到对方桌面，对方同意后只在这个范围里找' : '好友同意后，精灵在他开放的范围里找')), goMsg));
     }
     // 好友
     cards.push(h('div', { class: 'card' }, h('h3', {}, `我的好友 ${S.peers.length}`),
@@ -339,12 +327,14 @@ async function pagePeers(body) {
     { const go = cards.findIndex(c => c.classList?.contains('go')); if (go > 0) cards.unshift(cards.splice(go, 1)[0]); }
     // 开放给好友的范围
     const share = { ...S.share };
-    cards.push(h('div', { class: 'card' }, h('h3', {}, '开放给好友'), h('div', { class: 'muted' }, '好友的精灵只能在这里找；邮件和聊天原文永远不开放。'),
+    const mine = h('div');
+    cards.push(h('div', { class: 'card' }, h('h3', {}, '开放给好友'), h('div', { class: 'muted' }, '好友的精灵只能在这里找；邮件和聊天原文永远不开放。勾选的内容会自动生成一份目录（只有名字）发给好友，好友搬运前从里面选范围。'),
       ...Object.entries(S.scopes).map(([k, label]) => h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: !!share[k], onchange: e => { share[k] = e.target.checked; inv('peer:config', { share }); } }), label)),
+      h('div', { class: 'row' }, h('button', { onclick: async () => { try { const c = await inv('peer:my-catalog'); mine.replaceChildren(...(c.length ? c.map(x => h('div', { class: 'muted' }, `${x.name}：${x.items.length ? x.items.slice(0, 12).map(i => i.label).join('、') + (x.items.length > 12 ? ` 等 ${x.items.length} 项` : '') : '整体作为一个范围'}`)) : [h('div', { class: 'muted' }, '现在没有开放任何内容')])); } catch (e) { mine.replaceChildren(errBox(e)); } } }, '看看好友能看到的目录')), mine,
       h('div', { class: 'row' }, h('span', { class: 'muted' }, '我的名字'), h('input', { value: S.me.name, style: 'flex:1', onchange: e => inv('peer:config', { name: e.target.value }) }))));
     // 记录
     if (S.history.length) cards.push(h('div', { class: 'card' }, h('h3', {}, '串门记录'),
-      ...S.history.slice(0, 10).map(x => h('div', { class: 'li' }, h('div', { class: 'lt' }, h('span', { class: 'tag' + (x.status === 'ok' ? ' ok' : ' warn') }, x.dir === 'out' ? `去 ${x.peer}` : `${x.peer} 来访`), h('span', { class: 'st' }, x.ask)),
+      ...S.history.slice(0, 10).map(x => h('div', { class: 'li' }, h('div', { class: 'lt' }, h('span', { class: 'tag' + (x.status === 'ok' ? ' ok' : ' warn') }, x.dir === 'out' ? `去 ${x.peer}` : `${x.peer} 来访`), h('span', { class: 'st', title: x.scope ? '范围：' + x.scope : '' }, (x.scope ? `【${x.scope}】` : '') + x.ask)),
         x.answer ? h('details', { open: x === S.history[0] && x.dir === 'out' }, h('summary', { class: 'muted' }, x.dir === 'out' ? '搬回来的内容' : '给它的内容'), h('div', { class: 'ans' }, x.answer)) : h('div', { class: 'muted' }, x.note || ({ denied: '没让它找', empty: '没找到', timeout: '对方不在' }[x.status] || ''))))));
     box.replaceChildren(...cards);
   }
@@ -354,7 +344,6 @@ async function pagePeers(body) {
 const APPS = {
   'app.peers': ['搬运', pagePeers],
   'app.reminders': ['提醒', pageReminders],
-  'app.agent': ['助手', pageAgent],
   'app.update': ['升级', pageUpdate],
   'app.summary': ['汇总', summaryPage('all')],
   'mail.report': ['邮件汇报', summaryPage('mail')],

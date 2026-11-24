@@ -8,6 +8,7 @@ const PAGES = {
   'app.integrations': { title: '接入平台与 MCP', tabs: [['integrations', '接入']] },
   'app.connect': { title: '关联需求管理平台账号', tabs: [['account', '需求管理平台']] },
   'app.character': { title: '形象', tabs: [['character', '形象']] },
+  'app.models': { title: '模型', tabs: [['model', '模型']] },
 };
 /* 打开 / 收起：主进程先发 panel:go（带页面、精灵在哪一侧、主色），面板换好内容、摆好起始姿态后回 panel:ready，主进程再显示，
  * 这样不会先闪一下上一页的内容；显示后泡泡从精灵那一侧弹出来。 */
@@ -165,7 +166,8 @@ async function tabAccount(body) {
       h('div', { class: 'row' },
         h('button', { onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '再点一次确认断开'; return; } await ipcRenderer.invoke('mp2:unlink'); render(); } }, '断开（删除本机凭据）'),
         h('button', { class: 'ghost', onclick: () => ipcRenderer.invoke('mp2:open-revoke') }, '去 MP2 撤销授权')),
-      h('div', { class: 'muted' }, '断开只删本机凭据；彻底失效请到 MP2 撤销。')));
+      h('div', { class: 'muted' }, '断开只删本机凭据；彻底失效请到 MP2 撤销。'),
+      v.prefill && v.prefill.base !== a.baseUrl ? h('div', { class: 'err' }, `网页请求关联 ${v.prefill.base}；当前已关联 ${a.baseUrl}。要换平台，先断开再重新关联。`) : null));
     return;
   }
   if (L && L.phase === 'waiting') {
@@ -187,10 +189,29 @@ async function tabAccount(body) {
     if (!r.ok) { go.disabled = false; go.textContent = '申请关联代码'; msg.append(h('div', { class: 'err' }, r.error)); return; }
     render();
   };
+  // 从需求管理平台网页唤起（jmdesk://connect）：只预填地址，用户核对后自己发起
+  const pre = v.prefill && !done ? h('div', { class: 'muted' },
+    '从需求管理平台网页打开，地址已填好。请核对是你要关联的平台，再点「申请关联代码」。',
+    v.prefill.loopback || /^https:/i.test(v.prefill.base) ? null : h('div', { class: 'err' }, '这个地址不是 https，也不是本机地址；确认是公司内网平台再继续。')) : null;
   body.append(h('div', { class: 'card' }, h('h3', {}, '关联需求管理平台账号'),
-    done ? h('div', { class: 'err' }, done) : null,
+    done ? h('div', { class: 'err' }, done) : null, pre,
     h('div', { class: 'muted' }, '关联后，搬运会送进你在 MP2 的个人需求池；随时可断开。'),
     h('div', { class: 'row' }, h('label', {}, 'MP2 地址'), url), h('div', { class: 'row' }, go), msg));
+}
+
+/* ---------- 让本机 AI 控制 JM Desk（D86）：本机 MCP 端点，默认关闭 ---------- */
+async function localAiCard() {
+  const v = await ipcRenderer.invoke('localai:state'), msg = h('div');
+  const inv = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
+  const toggle = h('button', { class: v.enabled ? '' : 'pri', onclick: async () => { toggle.disabled = true; try { await inv('localai:set', !v.enabled); render(); } catch (e) { toggle.disabled = false; msg.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, v.enabled ? '关闭' : '打开');
+  return h('div', { class: 'card' }, h('h3', {}, '让本机 AI 控制 JM Desk'),
+    h('div', { class: 'muted' }, '打开后，本机的 AI（Claude Code、Codex 等）可以通过 MCP 查看和整理工作台：从需求管理平台拉取、绑定和回写平台记录、刷新进度、改工作和待办。只在本机可用；会改数据的操作每次都会在这里弹窗问你。'),
+    v.enabled && v.url ? h('div', { class: 'row' }, h('label', {}, '地址'), h('code', {}, v.url)) : null,
+    v.enabled ? h('div', { class: 'muted' }, '配置（含令牌，只给本机用户读）：', h('code', {}, v.file)) : null,
+    h('div', { class: 'row' }, toggle,
+      v.enabled ? h('button', { onclick: async () => { try { await inv('localai:copy-config'); msg.replaceChildren(h('div', { class: 'ok' }, '已复制。把其中的 mcpServers 加进本机 AI 的 MCP 配置。')); } catch (e) { msg.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '复制 MCP 配置') : null,
+      v.enabled ? h('button', { class: 'ghost', onclick: async () => { try { await inv('localai:rotate'); msg.replaceChildren(h('div', { class: 'ok' }, '已换新令牌；本机 AI 需要重新复制配置。')); } catch (e) { msg.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '换令牌') : null),
+    msg);
 }
 
 /* ---------- 接入：平台 API 与 MCP ---------- */
@@ -233,7 +254,7 @@ async function tabIntegrations(body) {
         it.builtin || it.preset ? null : h('button', { class: 'ghost', onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认删除'; return; } await inv('integ:remove', it.id); render(); } }, '删除')),
       out, toolsBox));
   }
-  body.append(list);
+  body.append(list, await localAiCard());
   /* 需要个人凭据的预置接入：粘贴凭据，或填本机凭据文件路径（只引用） */
   function credBox(it, out) {
     const c = it.cred, tok = h('input', { type: 'password', placeholder: c.set && !c.file ? '已保存（留空不改）' : '粘贴' + c.label, style: 'flex:1' }), file = h('input', { value: c.file || '', placeholder: '或：本机凭据文件路径', style: 'flex:1' });
@@ -293,18 +314,6 @@ async function tabIntegrations(body) {
     add.scrollIntoView({ behavior: 'smooth' });
   }
 }
-
-/* 助手调用会改数据的工具前，弹窗问一次 */
-ipcRenderer.on('agent:confirm', (_e, r) => {
-  const box = h('div', { class: 'modal' }, h('div', { class: 'dlg' },
-    h('h3', {}, '允许这个操作吗？'),
-    h('div', { class: 'muted' }, `${r.integration} · ${r.title}`), r.why ? h('div', { style: 'margin:6px 0' }, '助手的理由：' + r.why) : null,
-    h('pre', { class: 'args' }, r.args),
-    h('div', { class: 'row', style: 'justify-content:flex-end' },
-      h('button', { onclick: () => { ipcRenderer.invoke('agent:confirm-reply', r.id, false); box.remove(); } }, '拒绝'),
-      h('button', { class: 'pri', onclick: () => { ipcRenderer.invoke('agent:confirm-reply', r.id, true); box.remove(); } }, '允许'))));
-  document.body.append(box);
-});
 
 /* ---------- 模型 ---------- */
 /* 模型：多个来源（API / 本机 Claude Code / 本机 Codex / 本机 Ollama / 自定义命令）+ 按任务分配 + 每日额度 + 隐私 */

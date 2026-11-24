@@ -13,6 +13,13 @@ import http from 'node:http';
 const OP_SOURCES = 'POST:/api/meeting-intake/sources';
 const OP_BATCH = 'GET:/api/meeting-intake/batches/{id}';
 const OP_MY = 'GET:/api/meeting-intake/my-candidates';
+const OP_TREE = 'GET:/api/v1/plans/portfolio/tree';
+const OP_REQ_LIST = 'GET:/api/requirement/list';
+const OP_REQ_LINKS = 'GET:/api/v1/plans/targets/by-requirements';
+const OP_REQ_CREATE = 'POST:/api/requirement';
+const OP_REQ_UPDATE = 'PUT:/api/requirement/{id}';
+const OP_PRJ_CREATE = 'POST:/api/v1/plans/projects';
+const OP_PRJ_UPDATE = 'PUT:/api/v1/plans/projects/{id}';
 const TYPES = new Set(['feishu_im', 'feishu_meeting', 'mail']);
 
 function validateSource(b) {
@@ -38,7 +45,8 @@ function validateSource(b) {
  * 测试钩子：links.approve(code) / deny(code) / expire(code)；linkInterval（秒）与 linkMinGapMs 用来缩短测试。 */
 const crypto = await import('node:crypto');
 const sha = v => crypto.createHash('sha256').update(v).digest('hex');
-export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH, OP_MY], mirrorHttp = false, linkInterval = 5, linkMinGapMs = 5000 } = {}) {
+export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH, OP_MY], mirrorHttp = false, linkInterval = 5, linkMinGapMs = 5000, portfolio = { origin: 'global', nodes: [] }, requirements = [], links = [], scope = null, projects = [] } = {}) {
+  const created = [], updates = [];
   const devLinks = new Map(); let linkRequests = 0;
   const batches = new Map(), byRef = new Map(), receipts = new Map(), candidates = [], calls = [];
   const granted = new Set(grants);
@@ -69,8 +77,17 @@ export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH
         return send(200, { status: 'connected', connection_id: l.connectionId, config });
       }
       if (req.headers.authorization !== 'Bearer ' + token) return send(401, { code: 'unauthorized' });
+      if (req.url === '/api/ai-access/mcp') { // 只实现 mp2_context（负责范围），按 AiAccessController 的 tools/call 返回
+        const m = JSON.parse(raw || '{}');
+        if (m.params?.name !== 'mp2_context') return send(200, { jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'unsupported in mock' } });
+        const ctx = { operations: [], connection: { id: 'conn', name: 'JM Desk', scope: (scope || []).map(id => ({ product_id: id, product_name: 'P' + id, solution_ids: [], all_solutions: true })) } };
+        return send(200, { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: JSON.stringify(ctx) }] } });
+      }
       if (req.url !== '/api/ai-access/call') return send(404, {});
-      const call = JSON.parse(raw);
+      // 按真实 MP2：调用体是 snake_case（Jackson SNAKE_CASE），驼峰字段被忽略 → operation_id 为空 → 404 operation_not_found（无信封）
+      const w = JSON.parse(raw), call = { operationId: w.operation_id, requestId: w.request_id, path: w.path, query: w.query, body: w.body };
+      if (!call.operationId) return send(404, { status: 404, detail: 'operation_not_found' });
+      if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(call.requestId || '')) return send(400, { status: 400, detail: 'request_id_required' });
       calls.push({ operationId: call.operationId, requestId: call.requestId, query: call.query, path: call.path });
       if (receipts.has(call.requestId)) { const r = receipts.get(call.requestId); return send(mirrorHttp ? r.http_status : 200, { replayed: true, receipt: r }); }
       let result;
@@ -99,6 +116,39 @@ export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH
           const summary = { pending: 0, pooled: 0, rejected: 0 }; for (const c of candidates) summary[c.status]++;
           result = { total: items.length, items, summary };
         }
+      } else if (call.operationId === OP_TREE) {
+        result = portfolio;
+      } else if (call.operationId === OP_REQ_LIST) {
+        const kw = String(call.query?.keyword || '').toLowerCase();
+        result = { records: requirements.filter(r => !kw || (r.requirement_code + ' ' + r.title).toLowerCase().includes(kw)), total: requirements.length };
+      } else if (call.operationId === OP_REQ_LINKS) {
+        const ids = String(call.query?.requirementIds || '').split(',').map(Number);
+        result = links.filter(l => ids.includes(l.requirement_id));
+      } else if (call.operationId === OP_REQ_CREATE) {
+        // 按 MP2 核对：AI 通道先查必填（title / description / source）；业务层标题唯一，重名回 400 + detail（中文原因）；负责范围按 business_project_id
+        const b = call.body || {};
+        const miss = ['title', 'description', 'source'].find(f => !String(b[f] ?? '').trim());
+        if (miss) result = { status: 400, detail: 'required_field_missing', field: miss };
+        else if (scope && !scope.includes(Number(b.business_project_id))) result = { status: 403, detail: 'outside_responsibility_scope', field: 'business_project_id' };
+        else if (requirements.some(r => r.title === b.title.trim())) result = { status: 400, detail: '需求标题已存在，请勿重复创建：' + b.title.trim() }; // GlobalExceptionHandler：{ status, detail }
+        else {
+          const id = 100 + requirements.length, r = { ...b, id, requirement_code: 'REQ-' + String(id).padStart(4, '0'), status: 'draft', visible_status: '待提交' };
+          requirements.push(r); created.push(r); result = r;
+        }
+      } else if (call.operationId === OP_REQ_UPDATE) { // MP2：null / 省略保持原值；负责范围按改后的 business_project_id
+        const r = requirements.find(x => x.id === Number(call.path?.id)), b = call.body || {};
+        if (!r) result = { status: 404, detail: '需求不存在' };
+        else if (scope && b.business_project_id != null && !scope.includes(Number(b.business_project_id))) result = { status: 403, detail: 'outside_responsibility_scope', field: 'business_project_id' };
+        else { for (const [k, v] of Object.entries(b)) if (v != null) r[k] = v; result = { ...r }; updates.push({ id: r.id, body: b }); }
+      } else if (call.operationId === OP_PRJ_CREATE) {
+        const b = call.body || {};
+        if (projects.some(x => x.business_project_id === b.business_project_id && x.name === b.name)) result = { status: 409, detail: '同一业务产品下已有同名项目' };
+        else { const pr = { id: 500 + projects.length, project_code: 'PRJ-' + String(500 + projects.length).padStart(4, '0'), revision: 0, ...b }; projects.push(pr); result = pr; }
+      } else if (call.operationId === OP_PRJ_UPDATE) {
+        const pr = projects.find(x => x.id === Number(call.path?.id)), b = call.body || {};
+        if (!pr) result = { status: 404, detail: '项目不存在' };
+        else if (b.revision !== pr.revision) result = { status: 409, detail: 'revision_conflict' };
+        else { Object.assign(pr, b, { revision: pr.revision + 1 }); result = { ...pr }; }
       } else result = { status: 404, detail: 'operation_not_found' };
       const httpStatus = typeof result.status === 'number' ? result.status : 200;
       const receipt = { id: 'r' + (receipts.size + 1), operation_id: call.operationId, request_id: call.requestId, status: httpStatus < 400 ? 'succeeded' : 'failed', http_status: httpStatus };
@@ -107,7 +157,7 @@ export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH
     });
   });
   return new Promise(r => srv.listen(0, '127.0.0.1', () => r({
-    url: `http://127.0.0.1:${srv.address().port}`, batches, candidates, calls, receipts,
+    url: `http://127.0.0.1:${srv.address().port}`, batches, candidates, calls, receipts, created, updates, projects,
     failNext: (n = 1, code = 502) => { failing = n; failHttp = code; },
     gatewayDown: (n = 1, code = 502) => { down = n; downHttp = code; },
     links: {
