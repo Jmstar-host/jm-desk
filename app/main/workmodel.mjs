@@ -273,7 +273,8 @@ export function editItem(work, id, patch, now = new Date().toISOString(), by = '
     if (k === 'parentId' && v) { const p = work.find(x => x.id === v); if (!p || p.id === id || LEVELS[p.level].n >= LEVELS[patch.level || w.level].n) throw new Error('上级只能是更高层级的工作'); }
     if (!['level', 'type', 'title', 'summary', 'parentId', 'line', 'product', 'lineId', 'productId', 'status', 'deadline', 'priority', 'owner'].includes(k)) continue;
     if (JSON.stringify(w[k] ?? null) === JSON.stringify(v ?? null)) continue;
-    w[k] = typeof v === 'string' ? clip(v, k === 'summary' ? (w.mp2 ? 4000 : 200) : k === 'title' && w.mp2?.kind === 'requirement' ? 200 : 60) : v; changed.push(k);
+    const lv = patch.level || w.level, rec = w.mp2 || lv === 'requirement' || lv === 'project'; // 要录入平台的需求 / 项目按平台的长度限制，本机的待办保持简短
+    w[k] = typeof v === 'string' ? clip(v, k === 'summary' ? (rec ? 4000 : 200) : k === 'title' && (w.mp2?.kind === 'requirement' || (!w.mp2 && lv === 'requirement')) ? 200 : 60) : v; changed.push(k);
   }
   if (!changed.length) return w;
   if (changed.includes('level') && w.level !== 'requirement') w.type = null;
@@ -405,7 +406,7 @@ export function applyMp2Status(work, { taxonomy, links = [], known = null, now =
 
 /* ---------- 上传到需求管理平台（D87）：本地「需求」→ MP2 原始需求（POST /api/requirement），成功后自动绑定 ----------
  * 只上传「需求」：项目、专项在 MP2 由产品项目计划维护，待办只在本地。来源固定写「JM Desk」，提出人 / 负责人由 MP2 按关联账号填。
- * 描述用本地说明 + 依据的线索标题（不带原文，原文走「收集」送个人需求池）。平台产品来自 MP2 产品树时，挂到该平台产品（scope_type=product）。 */
+ * 描述用本地说明 + 依据的线索标题（不带原文，原文走「收集」送个人需求池）。平台产品来自 MP2 产品树时，挂到该平台产品（business_project_id）。 */
 export const MP2_SOURCE = 'JM Desk';
 const MP2_PRIORITY = { high: 'P1', medium: 'P2', low: 'P3' };
 const MP2_REQ_TYPE = { feature: '产品需求', change: '优化', bug: '问题修复' };
@@ -426,7 +427,7 @@ export function mp2RequirementDraft(work, id, { taxonomy, sources = [] } = {}) {
   if (MP2_REQ_TYPE[w.type]) body.requirement_type = MP2_REQ_TYPE[w.type];
   if (/^\d{4}-\d{2}-\d{2}/.test(String(w.deadline || ''))) body.expected_date = String(w.deadline).slice(0, 10);
   const prods = taxonomy?.products || [], prod = (w.product && prods.find(p => p.name === w.product)) || (w.productId && prods.find(p => p.id === w.productId)); // 名称优先：手改平台产品时 productId 可能是旧的
-  if (prod?.mp2Id) { body.scope_type = 'product'; body.scope_id = prod.mp2Id; body.business_project_id = prod.mp2Id; } // MP2 的关联负责范围按 business_project_id 判断
+  if (prod?.mp2Id) body.business_project_id = prod.mp2Id; // 平台产品只用 business_project_id；以前还写了 scope_type / scope_id，平台把它当成了「归属方案」（2026-11-24 修正）
   return body;
 }
 
@@ -444,6 +445,41 @@ export const MP2_OWNED = { project: ['level', 'title', 'deadline', 'status', 'pr
   requirement: ['level', 'title', 'summary', 'priority', 'type', 'deadline', 'status', 'product', 'productId', 'line', 'lineId', 'parentId'] };
 export const MP2_EDITABLE = { project: ['title', 'deadline'], requirement: ['title', 'summary', 'priority', 'type', 'deadline', 'productId'] };
 export const MP2_READONLY_HINT = { level: '层级', parentId: '上级（需求在哪个项目里由需求管理平台的功能 / 需求计划决定）', status: '状态（由需求管理平台的流程推进）', product: '平台产品', line: '产品线' };
+
+/* 平台上的字段在界面上叫什么（和平台页面一致） */
+export const MP2_FIELD_LABEL = { title: '标题', summary: '需求描述', priority: '优先级', type: '需求类型', deadline: '预期完成时间', productId: '平台产品' };
+const PRI_LABEL = { high: '高', medium: '中', low: '低' };
+const showVal = (w, k, v) => k === 'priority' ? PRI_LABEL[v] || v || '—' : k === 'type' ? REQ_TYPES[v] || v || '—' : k === 'productId' ? (v === w.productId ? w.product : w.mp2Base?.product) || '—' : (v == null || v === '' ? '（空）' : String(v));
+/** 这条工作有哪些改动还没推到平台：[{ key, label, from, to }]（from 是上次从平台读到的值）。没有返回 [] */
+export function mp2Pending(w) {
+  if (!w?.mp2 || !w.mp2Base) return [];
+  return MP2_EDITABLE[w.mp2.kind].filter(k => !sameVal(w[k], w.mp2Base[k])).map(k => ({ key: k, label: (w.mp2.kind === 'project' && k === 'deadline' ? '计划结束' : MP2_FIELD_LABEL[k]) || k, from: showVal(w, k, w.mp2Base[k]), to: showVal(w, k, w[k]) }));
+}
+/** 平台上一条原始需求的当前值 → 工作台字段（和 mergeMp2 同一套换算） */
+export function mp2RequirementFields(r, taxonomy) {
+  return { title: clip(r.title, 200), summary: String(r.description || '').slice(0, 4000), priority: P_TO_LOCAL[r.priority] || 'medium', type: TYPE_TO_LOCAL[r.requirement_type] || null,
+    deadline: r.expected_date || r.deadline || null, ...anchorOfMp2Product(taxonomy, r.product_id) };
+}
+/** 推送前核对：我要改的字段里，平台现在的值和我编辑前读到的（基线）不一样的，就是冲突。[{ key, label, mine, platform }] */
+export function mp2Conflicts(w, current) {
+  return mp2Pending(w).filter(p => current[p.key] !== undefined && current[p.key] !== null || p.key !== 'type').filter(p => !sameVal(current[p.key] ?? null, w.mp2Base[p.key] ?? null) && !sameVal(current[p.key] ?? null, w[p.key] ?? null))
+    .map(p => ({ key: p.key, label: p.label, mine: p.to, platform: p.key === 'productId' ? current.product || '—' : showVal(w, p.key, current[p.key]) }));
+}
+/** 放弃本地改动：这些字段回到 values（默认回到基线） */
+export function mp2Discard(w, values = null) {
+  const v = values || w.mp2Base || {};
+  for (const k of [...MP2_EDITABLE[w.mp2.kind], 'product', 'line', 'lineId']) if (v[k] !== undefined) { w[k] = v[k]; if (w.mp2Base) w.mp2Base[k] = v[k]; }
+  delete w.mp2Dirty; delete w.mp2Error; return w;
+}
+/** 以平台现在的值为新基线（保留我的改动，之后按新基线推送） */
+export function mp2Rebase(w, current) {
+  for (const [k, v] of Object.entries(current)) {
+    if (v === undefined || (k === 'type' && v === null)) continue;
+    if (sameVal(w[k], w.mp2Base[k])) w[k] = v; // 我没动过的字段跟着平台走，否则推送时会把别人的修改盖回旧值
+    w.mp2Base[k] = v;
+  }
+  return w;
+}
 
 /** MP2 平台产品 id → 工作台的产品线 / 平台产品字段 */
 export function anchorOfMp2Product(taxonomy, mp2ProductId) {
@@ -552,7 +588,7 @@ export function mp2Patch(w, { taxonomy } = {}) {
       if (k === 'productId') {
         const prod = (taxonomy?.products || []).find(p => p.id === w.productId);
         if (!prod?.mp2Id) throw new Error('平台产品要从需求管理平台的产品树里选');
-        Object.assign(body, { scope_type: 'product', scope_id: prod.mp2Id, business_project_id: prod.mp2Id });
+        body.business_project_id = prod.mp2Id;
       }
     }
   } else {

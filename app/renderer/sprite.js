@@ -23,11 +23,23 @@ let bubbleOn = false, bubbleTimer = null, bubbleAction = null, drag = null, raf 
 let menuOn = false, menuLevel = 'root', clickTimer = null, lastClickAt = 0; // 点击精灵弹出的气泡菜单
 const counts = { unread: 0, tasks: 0 };
 
-function displayAt(x, y) { return remote ? remote.screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }) : null; }
+/* 显示器信息由主进程推过来（启动时取一次，显示器变化时更新），这里只在本地算。
+ * 以前每一帧都经 remote 同步问主进程「这个点在哪块屏幕」「把窗口挪到这」：主进程一忙（读文件、连接入、汇总），精灵就卡住，忙完又跳一下。 */
+let DISPLAYS = [], PRIMARY = null;
+function setDisplays(v) { DISPLAYS = (v && v.all) || []; PRIMARY = DISPLAYS.find(d => d.id === v.primary) || DISPLAYS[0] || null; }
+try { setDisplays(ipcRenderer.sendSync('jm:displays')); } catch (e) {}
+ipcRenderer.on('jm:displays', (_e, v) => setDisplays(v));
+function displayAt(x, y) {
+  let best = null, bd = Infinity;
+  for (const d of DISPLAYS) { const b = d.bounds, dx = Math.max(b.x - x, 0, x - (b.x + b.width)), dy = Math.max(b.y - y, 0, y - (b.y + b.height)), q = dx * dx + dy * dy; if (q < bd) { bd = q; best = d; } }
+  return best;
+}
+/* 挪窗口：单向消息，不等主进程回话 */
+const moveTo = (x, y) => ipcRenderer.send('jm:move', x, y);
 /* 泡泡始终完整在屏幕内。窗口本身只允许伸到「外面没有别的显示器」的左 / 右 / 下边：
  * 顶边会被系统压回菜单栏下面，跨到相邻显示器（缩放不同）时系统会把窗口挪走，所以这两种都不允许。 */
 let dispCache = null, dispAt = 0;
-function allDisplays() { const t = Date.now(); if (!dispCache || t - dispAt > 2000) { dispCache = remote ? remote.screen.getAllDisplays() : []; dispAt = t; } return dispCache; }
+function allDisplays() { return DISPLAYS; }
 function sideFree(d, side) {
   const b = d.bounds;
   return !allDisplays().some(o => {
@@ -47,8 +59,7 @@ function clampAnchor(a, px, py) {
   return { x: clamp(a.x, minX, maxX), y: clamp(a.y, minY, maxY) };
 }
 function setBounds(x, y, w, h) {
-  if (!win) return send('move', { x, y });
-  win.setBounds({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) });
+  moveTo(Math.round(x), Math.round(y));
 }
 function place(el, x, y) { el.style.left = Math.round(x) + 'px'; el.style.top = Math.round(y) + 'px'; }
 
@@ -97,7 +108,7 @@ function overMew(e) {
 }
 let hovering = false;
 document.addEventListener('mousemove', e => {
-  mew.pointer(e.clientX, e.clientY);
+  mew.pointer(e.clientX, e.clientY); B.lastUser = performance.now();
   if (drag) return;
   const om = overMew(e);
   setIgnore(!om);
@@ -137,9 +148,8 @@ const endDrag = e => {
 $('stage').addEventListener('pointerup', endDrag);
 $('stage').addEventListener('pointercancel', endDrag);
 function resetCorner() {
-  if (!remote) return send('resetPos');
-  const wa = remote.screen.getPrimaryDisplay().workArea;
-  const d = remote.screen.getPrimaryDisplay(); const c = clampAnchor({ x: 1e7, y: 1e7 }, wa.x + wa.width / 2, wa.y + wa.height / 2);
+  if (!PRIMARY) return;
+  const wa = PRIMARY.workArea; const c = clampAnchor({ x: 1e7, y: 1e7 }, wa.x + wa.width / 2, wa.y + wa.height / 2);
   anchor = { x: c.x - 10, y: c.y - 10 }; layout(); send('savePos', anchor); mew.trick('loop'); brainStay(30000);
 }
 $('stage').addEventListener('dblclick', () => { clearTimeout(clickTimer); if (menuOn) closeMenu(null, true); resetCorner(); });
@@ -170,7 +180,7 @@ const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const B = { mode: 'idle', until: 0, target: null, speed: 380, wiggle: 0, pos: null, vel: { x: 0, y: 0 }, orbit: null, follow: false,
   cursor: null, cursorMovedAt: 0, lastUser: performance.now(), reactCd: 0, lastPoll: 0, fps: 60, lastSet: null, after: null };
 
-function displays() { try { return remote ? remote.screen.getAllDisplays() : []; } catch (e) { return []; } }
+function displays() { return DISPLAYS; }
 function curDisplay() { return displayAt(B.pos.x + MEW / 2, B.pos.y + MEW / 2); }
 function center(p = B.pos) { const hc = mew.hitCircle(true); return { x: p.x + hc.x, y: p.y + hc.y }; }
 function randomAnchor(d) {
@@ -237,9 +247,8 @@ function reactToCursor(now, c, dist) {
   } else { mew.trick('peek'); idle(3000); }
 }
 function pollCursor(now) {
-  if (!remote || now - B.lastPoll < 90) return;
-  B.lastPoll = now;
-  let c; try { c = remote.screen.getCursorScreenPoint(); } catch (e) { return; }
+  return; // 不再轮询鼠标位置：精灵不对鼠标做反应，这个查询以前每 90 毫秒同步问一次主进程，是卡顿来源之一
+  let c;
   if (B.cursor && Math.hypot(c.x - B.cursor.x, c.y - B.cursor.y) > 3) { B.cursorMovedAt = now; B.lastUser = now; mew.wake(); }
   B.cursor = c;
   const me = center(), dist = Math.hypot(c.x - me.x, c.y - me.y);
@@ -259,7 +268,7 @@ function moveWin(force) {
   const x = Math.round(B.pos.x), y = Math.round(B.pos.y);
   if (!force && B.lastSet && B.lastSet.x === x && B.lastSet.y === y) return;
   B.lastSet = { x, y }; anchor = { x: B.pos.x, y: B.pos.y };
-  try { win ? win.setPosition(x, y) : send('move', { x, y }); } catch (e) {}
+  moveTo(x, y);
   win0 = { x, y }; placeBadge();
 }
 let lastT = performance.now(), saveT = 0;
@@ -309,7 +318,7 @@ function tween(to, ms) {
       const p = { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e + Math.sin(k * Math.PI) * -30 };
       const dt = Math.max(1, now - lt) / 1000; mew.travel((p.x - last.x) / dt, (p.y - last.y) / dt); last = p; lt = now;
       B.pos = { ...p }; anchor = { ...p };
-      try { win ? win.setPosition(Math.round(p.x), Math.round(p.y)) : send('move', { x: Math.round(p.x), y: Math.round(p.y) }); } catch (e) {}
+      moveTo(Math.round(p.x), Math.round(p.y));
       placeBadge();
       if (k < 1) requestAnimationFrame(step); else { mew.travel(0, 0); res(); }
     };

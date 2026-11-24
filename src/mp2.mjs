@@ -243,6 +243,14 @@ export async function listRequirements(cfg, { pageSize = 200, limit = 5000 } = {
 
 /* 平台按「连接所有者」的权限判断写操作：连接勾了这项操作、但所有者的账号本身没有对应的写权限时回 403 forbidden */
 const OWNER_FORBIDDEN = '你的需求管理平台账号没有这项写权限（AI 连接按账号本人的权限判断）：请管理员给账号开通，或在平台页面上由有权限的人操作';
+/** 读一条原始需求在平台上的当前值（推送前核对用）：按编号搜，再按 id 认。找不到返回 null。 */
+export async function getRequirement(cfg, { id, code }) {
+  const r = await read(cfg, OP_REQUIREMENT_LIST, { query: { keyword: String(code || '').slice(0, 80), page: 1, page_size: 20 }, what: 'req-one' });
+  const rows = Array.isArray(r) ? r : r?.items || r?.records || [];
+  const x = rows.find(y => Number(y.id) === Number(id)); if (!x) return null;
+  return { id: x.id, code: x.requirement_code || null, title: x.title || '', description: x.description || '', priority: x.priority || null, status: x.status || null,
+    product_id: x.business_project_id ?? null, expected_date: x.expected_date || null, deadline: x.deadline || null, requirement_type: x.requirement_type || null, updated_at: x.updated_at || null };
+}
 /* 写操作的统一处理：成功回执才算；把常见拒绝原因翻成人话 */
 async function write(cfg, operationId, { path, body, task }) {
   const { http, receipt, result, replayed } = await call(cfg, { operationId, path, body, requestId: readId('w'), task }, 30000);

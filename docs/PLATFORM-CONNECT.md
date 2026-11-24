@@ -52,7 +52,7 @@
 
 - 入口：工作台需求详情「上传到需求管理平台」；助手工具 `upload_work_mp2`（本机 AI 经本机 MCP 也可调用）。三处走同一个 `services.uploadWork`。
 - 调用：AI 通道 `POST:/api/requirement`（原始需求新建），`source` 固定 `JM Desk`；`description` = 本地说明 + 上级 / 提出人 / 期望交付 + 依据线索标题（不含原文，原文走「收集」送个人需求池）；优先级 high/medium/low → P1/P2/P3；类型 feature/change/bug → 产品需求/优化/问题修复；`expected_date` 取交期。
-- 平台产品：取工作的平台产品在产品树里的 MP2 id，写 `scope_type=product`、`scope_id`、`business_project_id`。关联设了负责范围时，MP2 按 `business_project_id` 拒绝范围外或未挂产品的新建（`outside_responsibility_scope`），JM Desk 提示先选平台产品；助手可带 `product` 参数一步改产品再上传。上传处的平台产品下拉只列负责范围内的产品：范围经关联的 MCP 端点 `mp2_context`（只读）读取，助手用 `list_mp2_upload_products`。
+- 平台产品：取工作的平台产品在产品树里的 MP2 id，只写 `business_project_id`（以前还写了 `scope_type` / `scope_id`，平台把它当成了归属方案，2026-11-24 去掉）。关联设了负责范围时，MP2 按 `business_project_id` 拒绝范围外或未挂产品的新建（`outside_responsibility_scope`），JM Desk 提示先选平台产品；助手可带 `product` 参数一步改产品再上传。上传处的平台产品下拉只列负责范围内的产品：范围经关联的 MCP 端点 `mp2_context`（只读）读取，助手用 `list_mp2_upload_products`。
 - 调用体字段一律 snake_case（`operation_id`、`request_id`）：MP2 全局 Jackson SNAKE_CASE，驼峰字段会被忽略并回 `operation_not_found`（2026-11-24 实测修正）。
 - 成功后自动绑定（history 记「上传到需求管理平台 REQ-xxxx」）并读一次进度。MP2 标题唯一：重名不创建，返回同名候选，由人 / 助手确认后用绑定。每次写入用新的 `request_id`。
 - 只上传「需求」；项目在 MP2 由产品项目计划维护，用绑定；待办、专项只在本地。

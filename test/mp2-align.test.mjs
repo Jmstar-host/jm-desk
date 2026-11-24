@@ -105,12 +105,12 @@ test('上传草稿：只上传未绑定的需求；挂平台产品；说明带�
   ];
   const b = mp2RequirementDraft(work, 'r1', { taxonomy, sources: [{ sourceLabel: '飞书', title: '客户群反馈', at: '2026-11-20T08:00:00Z' }] });
   assert.deepEqual({ ...b, description: undefined }, { title: '寄送信息提示丢失', description: undefined, source: 'JM Desk', priority: 'P1', requirement_type: '问题修复',
-    expected_date: '2026-12-01', scope_type: 'product', scope_id: 117, business_project_id: 117 });
+    expected_date: '2026-12-01', business_project_id: 117 });
   for (const s of ['下单后看不到寄送信息', '所属项目：云帆出行（PRJ-0001）', '提出人：王五', '期望交付：2026-12-01（原话：12月初）', '飞书《客户群反馈》 2026-11-20']) assert.ok(b.description.includes(s), s);
   assert.throws(() => mp2RequirementDraft(work, 'r2', { taxonomy }), /已经绑定 REQ-0002/);
   assert.throws(() => mp2RequirementDraft(work, 't1', { taxonomy }), /只有「需求」可以上传/);
   const loose = mp2RequirementDraft([{ id: 'x', level: 'requirement', title: '没挂产品' }], 'x', { taxonomy });
-  assert.equal(loose.scope_type, undefined); assert.equal(loose.description.split('\n')[0], '没挂产品'); assert.equal(loose.priority, 'P2');
+  assert.equal(loose.business_project_id, undefined); assert.equal(loose.description.split('\n')[0], '没挂产品'); assert.equal(loose.priority, 'P2');
 });
 
 test('经 AI 通道新建原始需求；重名、无权限、超出负责范围给出可读原因', async () => {

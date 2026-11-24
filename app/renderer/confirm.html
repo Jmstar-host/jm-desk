@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>JM Desk</title>
+<link rel="stylesheet" href="./theme.css">
+<style>
+/* 确认卡片：代替系统的消息框，和面板同一种质感 */
+html,body{margin:0;height:100%;background:transparent;font:var(--font);color:var(--ink);overflow:hidden;user-select:none}
+#card{position:absolute;inset:14px;border-radius:22px;padding:16px 18px;display:flex;flex-direction:column;background:var(--pearl);-webkit-app-region:drag;
+  box-shadow:0 12px 30px color-mix(in srgb,var(--a2) 30%,transparent),var(--rim),inset 0 0 18px color-mix(in srgb,var(--a1) 10%,transparent);animation:popin .3s cubic-bezier(.2,1.35,.4,1) both}
+#hd{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+#hd h1{margin:0;font-size:14.5px;line-height:1.4}
+#msg{font-size:12.5px;line-height:1.6;color:var(--sub)}
+pre.args{flex:1;min-height:0;max-height:none;-webkit-app-region:no-drag;user-select:text}
+#row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+#row button{-webkit-app-region:no-drag;padding:6px 16px}
+</style></head>
+<body><div id="card" class="iris"><div id="hd"><div class="orb"></div><h1 id="t"></h1></div><div id="msg"></div><pre class="args" id="d"></pre><div id="row"><button id="no"></button><button class="pri" id="yes"></button></div></div>
+<script>
+const { ipcRenderer } = require('electron');
+const qs = new URLSearchParams(location.search), v = JSON.parse(qs.get('v') || '{}');
+for (const k of ['a1', 'a2']) if (/^#[0-9a-f]{6}$/i.test(qs.get(k) || '')) document.documentElement.style.setProperty('--' + k, qs.get(k));
+const $ = id => document.getElementById(id);
+$('t').textContent = v.title || ''; $('msg').textContent = v.message || ''; $('d').textContent = v.detail || ''; if (!v.detail) $('d').style.display = 'none';
+$('no').textContent = v.cancel || '取消'; $('yes').textContent = v.ok || '确定';
+const reply = ok => ipcRenderer.send('confirm:reply', v.id, ok);
+$('no').onclick = () => reply(false); $('yes').onclick = () => reply(true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') reply(false); });
+</script></body></html>

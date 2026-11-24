@@ -531,6 +531,11 @@ function runAction(id) {
 }
 
 /* ---------- IPC ---------- */
+/* 精灵的位置：显示器信息推给精灵窗口，由它在本地算边界；挪窗口是单向消息（见 sprite.js） */
+const displaysView = () => ({ primary: screen.getPrimaryDisplay().id, all: screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, workArea: d.workArea })) });
+ipcMain.on('jm:displays', e => { e.returnValue = displaysView(); });
+ipcMain.on('jm:move', (e, x, y) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && !w.isDestroyed() && Number.isFinite(x) && Number.isFinite(y)) w.setPosition(Math.round(x), Math.round(y), false); });
+app.whenReady().then(() => { const push = () => { if (sprite && !sprite.isDestroyed()) sprite.webContents.send('jm:displays', displaysView()); }; for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, push); });
 ipcMain.on('jm:layout', e => { e.returnValue = resolveLayout(loadLayout()); });
 ipcMain.on('jm:character', e => { e.returnValue = loadCharacter(); });
 ipcMain.on('jm:theme', e => { const ch = loadCharacter(); e.returnValue = { theme: themeFor(ch), name: (CHARACTERS[ch.id] || {}).name || 'JM Desk', version: app.getVersion() }; });
@@ -596,7 +601,9 @@ ipcMain.on('work:open', (_e, focusId) => openDesk('work', focusId));
 ipcMain.on('chat:open', (_e, focusId) => openDesk('chat', focusId));
 ipcMain.handle('work:tree', safe((_e, o) => services.workTree(o || {})));
 ipcMain.handle('work:item', safe((_e, id) => services.workItem(String(id))));
-ipcMain.handle('work:edit', safe(async (_e, id, patch) => { const r = await services.editWork(String(id), patch || {}); pushCounts(); return r; }));
+ipcMain.handle('work:edit', safe(async (_e, id, patch, opts) => { const r = await services.editWork(String(id), patch || {}, 'me', { push: opts?.push !== false }); pushCounts(); return r; }));
+ipcMain.handle('work:board', safe(() => services.workBoard()));
+ipcMain.handle('work:push', safe(async (_e, id, mode) => { const r = await services.pushWork(String(id), ['mine', 'platform'].includes(mode) ? mode : undefined); pushCounts(); return r; }));
 ipcMain.handle('work:mp2-create-project', safe((_e, id, opt) => services.createProjectWork(String(id), 'me', { productId: Number(opt?.productId) || undefined })));
 ipcMain.handle('work:mp2-apply', safe((_e, id) => services.applyMp2Suggestion(String(id), 'me')));
 ipcMain.handle('work:mp2-dismiss', safe((_e, id) => services.dismissMp2Suggestion(String(id))));
@@ -608,11 +615,27 @@ let localAi = null; // { url, port, close }
 const localAiFile = () => store.file('local-mcp.json');
 function readLocalAi() { try { return JSON.parse(fs.readFileSync(localAiFile(), 'utf8')); } catch { return null; } }
 function writeLocalAi(v) { fs.writeFileSync(localAiFile(), JSON.stringify(v, null, 1), { mode: 0o600 }); try { fs.chmodSync(localAiFile(), 0o600); } catch { /* Windows 上忽略 */ } }
+/* 确认卡片（confirm.html）：代替系统的消息框，出现在精灵旁边；关掉窗口、超时都算「否」 */
+const confirms = new Map(); let confirmWinSeq = 0;
+ipcMain.on('confirm:reply', (_e, id, ok) => { const c = confirms.get(id); if (c) c(!!ok); });
+function askConfirm({ title, message = '', detail = '', ok = '确定', cancel = '取消', timeoutMs = 3 * 60e3 }) {
+  return new Promise(resolve => {
+    const id = ++confirmWinSeq, W = 440, H = detail ? 330 : 190;
+    const sb = sprite && !sprite.isDestroyed() ? sprite.getBounds() : null, d = screen.getDisplayNearestPoint(sb ? { x: sb.x + 110, y: sb.y + 110 } : screen.getCursorScreenPoint()).workArea;
+    const x = sb ? Math.max(d.x + 8, Math.min(sb.x + 110 - W / 2, d.x + d.width - W - 8)) : d.x + (d.width - W) / 2, y = sb ? (sb.y - H - 4 >= d.y ? sb.y - H - 4 : Math.min(sb.y + 200, d.y + d.height - H - 8)) : d.y + (d.height - H) / 2;
+    const w = new BrowserWindow({ width: W, height: H, x: Math.round(x), y: Math.round(y), frame: false, transparent: true, hasShadow: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, show: false,
+      fullscreenable: false, minimizable: false, maximizable: false, backgroundColor: '#00000000', title: 'JM Desk', webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
+    w.setAlwaysOnTop(true, 'floating');
+    let settled = false; const finish = v => { if (settled) return; settled = true; confirms.delete(id); clearTimeout(timer); if (!w.isDestroyed()) w.close(); resolve(v); };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    confirms.set(id, finish); w.on('closed', () => finish(false));
+    const u = pathToFileURL(R('confirm.html')); u.searchParams.set('v', JSON.stringify({ id, title, message, detail, ok, cancel })); u.searchParams.set('a1', themeFor()[0]); u.searchParams.set('a2', themeFor()[1]);
+    w.loadURL(u.href); w.once('ready-to-show', () => { w.show(); w.focus(); });
+  });
+}
 async function confirmLocalAi({ title, args }) {
   sayToSprite('本机 AI 想改工作台', title, 4000);
-  const r = await dialog.showMessageBox({ type: 'question', buttons: ['拒绝', '允许'], defaultId: 0, cancelId: 0, noLink: true,
-    title: 'JM Desk', message: `本机 AI 想执行：${title}`, detail: JSON.stringify(args, null, 1).slice(0, 1500) + '\n\n只改本机工作台；不会改需求管理平台的数据。' });
-  return r.response === 1;
+  return askConfirm({ title: `本机 AI 想执行：${title}`, message: '允许后才会执行；3 分钟不点算拒绝。', detail: JSON.stringify(args, null, 1).slice(0, 1500), ok: '允许', cancel: '拒绝' });
 }
 async function startLocalAi() {
   if (localAi) return localAi;

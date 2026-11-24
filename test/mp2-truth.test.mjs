@@ -109,7 +109,7 @@ test('客户端：拉全部需求（分页）、回写需求、新建项目、�
     assert.equal(all.length, 5); assert.deepEqual(Object.keys(all[0]).slice(0, 3), ['id', 'code', 'title']); assert.equal(all[0].product_id, 117);
     await mp2.updateRequirement(cfg, 2, { description: '补充', priority: 'P1' });
     assert.deepEqual(mock.updates[0], { id: 2, body: { description: '补充', priority: 'P1' } });
-    await assert.rejects(mp2.updateRequirement(cfg, 2, { business_project_id: 5, scope_type: 'product', scope_id: 5 }), /负责范围/);
+    await assert.rejects(mp2.updateRequirement(cfg, 2, { business_project_id: 5 }), /负责范围/);
     const pr = await mp2.createProject(cfg, { business_project_id: 117, name: '合作方 H5', source: 'product' });
     assert.equal(pr.project_code, 'PRJ-0500');
     await assert.rejects(mp2.createProject(cfg, { business_project_id: 117, name: '合作方 H5', source: 'product' }), /同名项目/);
@@ -143,4 +143,24 @@ test('连接所有者没有写权限（403 forbidden）：说清楚是账号权�
       await assert.rejects(run(), e => /账号没有这项写权限/.test(e.message) && e.status === 403 && e.final === true);
     await assert.rejects(mp2.updateProject(cfg, 1, { name: 'x', revision: 0 }, { productId: 117 }), /没有这项操作的权限/, '连接没勾读取项目时仍按「连接没勾」提示');
   } finally { mock.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('推送前核对版本：别人改了我也改的字段是冲突；别人改的别的字段跟着平台走，不会被我盖回旧值；可以放弃改动', () => {
+  const base = { title: '旧标题', summary: '旧描述', priority: 'medium', type: 'feature', deadline: null, productId: 'mp2:p:117', product: '商城与支付' };
+  const mk = () => ({ id: 'w', level: 'requirement', mp2: { kind: 'requirement', id: 1, code: 'REQ-0001' }, ...base, mp2Base: { ...base } });
+  const w = mk(); w.title = '我改的标题'; w.priority = 'high';
+  assert.deepEqual(wm.mp2Pending(w).map(p => [p.key, p.label, p.from, p.to]), [['title', '标题', '旧标题', '我改的标题'], ['priority', '优先级', '中', '高']]);
+  // 平台上：标题被别人改了（冲突），描述也被改了（我没动，不算冲突）
+  const cur = { ...base, title: '别人改的标题', summary: '别人补充的描述' };
+  assert.deepEqual(wm.mp2Conflicts(w, cur), [{ key: 'title', label: '标题', mine: '我改的标题', platform: '别人改的标题' }]);
+  assert.deepEqual(wm.mp2Conflicts(w, { ...base, summary: '别人补充的描述' }), [], '只改了我没动的字段：不冲突');
+  assert.deepEqual(wm.mp2Conflicts(w, { ...base, title: '我改的标题' }), [], '平台上已经是我要的值：不冲突');
+  // 用我的：以平台现在的为新基线，我没动的描述跟着平台，推送只送我改的两项
+  wm.mp2Rebase(w, cur);
+  assert.equal(w.summary, '别人补充的描述'); assert.equal(w.title, '我改的标题');
+  assert.deepEqual(wm.mp2Pending(w).map(p => p.key), ['title', 'priority']); assert.equal(wm.mp2Pending(w)[0].from, '别人改的标题');
+  // 用平台的：放弃我的改动
+  const d = mk(); d.title = '我改的'; d.mp2Dirty = ['title']; wm.mp2Discard(d, cur);
+  assert.equal(d.title, '别人改的标题'); assert.deepEqual(wm.mp2Pending(d), []); assert.equal(d.mp2Dirty, undefined);
+  assert.deepEqual(wm.mp2Pending({ id: 'x', level: 'todo', title: 't' }), [], '只在本机的没有待推送');
 });

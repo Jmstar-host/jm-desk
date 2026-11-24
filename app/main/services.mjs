@@ -86,19 +86,52 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   /* 线索 → 从它整理出的工作 */
   function derivedIndex() { const m = new Map(); for (const x of loadWork()) for (const s of x.sids || []) { if (!m.has(s)) m.set(s, []); m.get(s).push({ id: x.id, level: x.level, title: x.title, status: x.status }); } return m; }
   function setTask(id, status) { const w = loadWork(); wm.editItem(w, id, { status }); saveWork(w); return tasks(); }
+  /* 工作台看板（1.3.1）：把全部工作摊平给界面，由界面按「平台的树」和「我要处理的」来排，不再用本机自己的分组 */
+  function workBoard() {
+    const w = loadWork(), t = dataStore.read('taxonomy.json', { lines: [], products: [], projects: [] }), cfg = desk.config();
+    const kids = new Map(); for (const x of w) if (x.parentId) { if (!kids.has(x.parentId)) kids.set(x.parentId, []); kids.get(x.parentId).push(x); }
+    const items = w.filter(x => x.status !== 'dropped' || x.mergedInto == null).map(x => ({ id: x.id, level: x.level, type: x.type || null, title: x.title, status: x.status, deadline: x.deadline || null, priority: x.priority || 'medium',
+      parentId: x.parentId || null, productId: x.productId || null, product: x.product || null, updatedAt: x.updatedAt || x.addedAt || null,
+      mp2: x.mp2 ? { kind: x.mp2.kind, id: x.mp2.id, code: x.mp2.code || null } : null, mp2Label: x.mp2Status?.label || null, missing: x.mp2Status?.found === false,
+      pending: wm.mp2Pending(x).length, pushError: x.mp2Error && x.mp2Dirty?.length ? x.mp2Error : null, suggest: !x.mp2 && x.mp2Suggest ? x.mp2Suggest.action : null,
+      todosOpen: (kids.get(x.id) || []).filter(c => c.level === 'todo' && c.status === 'open').length, clues: (x.sids || []).length }));
+    return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, platform: { linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null } };
+  }
   function workTree(opts) { return { ...wm.tree(loadWork(), { ...opts, taxonomy: dataStore.read('taxonomy.json', null) }), taxonomy: dataStore.read('taxonomy.json', { lines: [], products: [] }), levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, needsReview: loadWork().filter(x => x.needsReview && x.status === 'open').length }; }
   function workItem(id) {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
     const sigs = new Map(desk.listSignals().map(s => [s.id, s]));
-    return { ...it, crumbs: wm.breadcrumb(w, it), children: w.filter(c => c.parentId === id).map(c => ({ id: c.id, level: c.level, title: c.title, status: c.status })),
+    return { ...it, pending: wm.mp2Pending(it), crumbs: wm.breadcrumb(w, it), children: w.filter(c => c.parentId === id).map(c => ({ id: c.id, level: c.level, title: c.title, status: c.status })),
       parents: w.filter(p => p.status === 'open' && p.id !== id && wm.LEVELS[p.level].n < wm.LEVELS[it.level].n).map(p => ({ id: p.id, level: p.level, title: p.title })),
       sources: (it.sids || []).map(s => sigs.get(s)).filter(Boolean).map(digest.summarize) };
   }
   /* D87：保存即回写——改的是 MP2 的项目 / 需求时，只把改动字段送回 MP2；回写失败本地照样保存，标「待回写」，下次保存或拉取时重试 */
-  async function editWork(id, patch, by = 'me') {
+  async function editWork(id, patch, by = 'me', { push = true } = {}) {
     const w = loadWork(); wm.editItem(w, id, patch, undefined, by); saveWork(w);
-    const mp2Sync = await pushMp2(id, by);
+    const mp2Sync = push ? await pushMp2(id, by) : null; // 界面上先存本机，人看过改动再推送（push: false）；助手补充信息仍然保存即推送
     return { ...workItem(id), mp2Sync };
+  }
+  /* 推送前核对版本：重新读平台上的当前值，和编辑前读到的基线比。别人改过我也要改的字段 → 冲突，不推送，交给人选。
+   * 项目另有平台的 revision 把关（updateProject 带 revision，对不上平台拒绝）。 */
+  async function checkMp2(id) {
+    const it = loadWork().find(x => x.id === id); if (!it?.mp2 || it.mp2.kind !== 'requirement') return { conflicts: [] };
+    const cur = await mp2.getRequirement(requireMp2(), { id: it.mp2.id, code: it.mp2.code });
+    if (!cur) return { conflicts: [], missing: true };
+    const fields = wm.mp2RequirementFields(cur, taxonomy());
+    return { conflicts: wm.mp2Conflicts(it, fields), current: fields };
+  }
+  /** 界面上的「推送」。mode：undefined 先核对；'mine' 冲突时用我的；'platform' 放弃我的改动、换成平台现在的。 */
+  async function pushWork(id, mode, by = 'me') {
+    const it0 = loadWork().find(x => x.id === id); if (!it0?.mp2) throw new Error('这条工作还没有对应平台记录');
+    if (!wm.mp2Pending(it0).length && mode !== 'platform') return { ok: true, nothing: true, item: workItem(id) };
+    let chk = { conflicts: [] };
+    try { chk = await checkMp2(id); } catch (e) { return { ok: false, error: '推送前没能读到平台上的最新内容，没有推送：' + e.message, item: workItem(id) }; }
+    if (chk.missing) return { ok: false, error: '需求管理平台上找不到这条记录了：先「从需求管理平台拉取」', item: workItem(id) };
+    if (mode === 'platform') { const w = loadWork(), it = w.find(x => x.id === id); wm.mp2Discard(it, chk.current || null); (it.history ||= []).push({ at: new Date().toISOString(), by, fields: [], note: '放弃本机改动，改用平台上的内容' }); saveWork(w); return { ok: true, discarded: true, item: workItem(id) }; }
+    if (chk.conflicts.length && mode !== 'mine') return { ok: false, conflict: chk.conflicts, item: workItem(id) };
+    if (chk.current) { const w = loadWork(), it = w.find(x => x.id === id); wm.mp2Rebase(it, chk.current); saveWork(w); } // 平台上别人改的、和我无关的字段先并进基线
+    const r = await pushMp2(id, by);
+    return { ...(r || { ok: true, nothing: true }), item: workItem(id) };
   }
   async function pushMp2(id, by = 'me') {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it?.mp2) return null;
@@ -151,8 +184,10 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   }
   /* 待归入：AI 把本地还没对应 MP2 的工作映射到 MP2（绑定已有 / 新建到某平台产品 / 归到某平台产品），只写建议，人确认后才生效 */
   async function suggestMp2() {
-    const w = loadWork(), t = taxonomy(), packed = wm.packUnaligned(w);
+    const w = loadWork(), packed = wm.packUnaligned(w); let t = taxonomy();
     if (!packed || !(t.products || []).length) return 0;
+    // 只让 AI 在这个关联的负责范围内选平台产品：范围外的建议上传时一定被平台拒绝
+    try { const scope = await mp2.responsibility(desk.config()); if (scope?.length) { const ids = new Set(scope.map(s => s.id)); const inScope = (t.products || []).filter(p => ids.has(mp2IdOf(p))); if (inScope.length) t = { ...t, products: inScope, projects: (t.projects || []).filter(j => inScope.some(p => p.id === j.productId)) }; } } catch { /* 读不到范围时按整棵树给建议 */ }
     const data = await chatJSON(wm.buildSuggestPrompt({ taxonomy: t, work: w }), packed);
     const w2 = loadWork(), n = wm.applySuggest(w2, data, { taxonomy: t }); saveWork(w2); return n;
   }
@@ -252,7 +287,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     saveWork(fresh);
     desk.log('moved', `上传 · ${body.title.slice(0, 28)} → MP2 ${r.code || '#' + r.id}`, { work: id });
     try { await refreshMp2(); } catch { /* 进度读取失败不影响上传结果 */ }
-    return { ok: true, id: r.id, code: r.code, title: r.title, product: body.scope_id ? it.product : null, item: workItem(id) };
+    return { ok: true, id: r.id, code: r.code, title: r.title, product: body.business_project_id ? it.product : null, item: workItem(id) };
   }
   /* 刷新已绑定工作的 MP2 状态：项目看产品树（先同步产品树才是最新），需求读 by-requirements */
   async function refreshMp2() {
@@ -322,5 +357,5 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       line: req?.line || null, product: req?.product || null, deadline: /^\d{4}-\d{2}-\d{2}/.test(deadline || '') ? deadline : null, deadline_verified: false, priority: 'medium', status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'assistant', fields: ['created'], note: '助手新建' }] };
     w.push(it); saveWork(w); return it;
   }
-  return { addTodo, requirementPool, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  return { addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }
