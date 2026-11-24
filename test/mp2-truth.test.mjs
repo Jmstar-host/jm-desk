@@ -98,7 +98,7 @@ import { startMock } from './mock-mp2.mjs';
 import * as mp2 from '../src/mp2.mjs';
 
 test('客户端：拉全部需求（分页）、回写需求、新建项目、改项目（revision 冲突给出可读原因）', async () => {
-  const ops = ['GET:/api/requirement/list', 'PUT:/api/requirement/{id}', 'POST:/api/v1/plans/projects', 'PUT:/api/v1/plans/projects/{id}'];
+  const ops = ['GET:/api/requirement/list', 'PUT:/api/requirement/{id}', 'POST:/api/v1/plans/projects', 'PUT:/api/v1/plans/projects/{id}', 'GET:/api/v1/plans/projects'];
   const requirements = Array.from({ length: 5 }, (_, i) => ({ id: i + 1, requirement_code: `REQ-000${i + 1}`, title: 't' + i, business_project_id: 117, priority: 'P2', status: 'draft' }));
   const mock = await startMock({ grants: ops, requirements, scope: [117] });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmd-truth-')), credentialFile = path.join(dir, 'c.json');
@@ -113,7 +113,34 @@ test('客户端：拉全部需求（分页）、回写需求、新建项目、�
     const pr = await mp2.createProject(cfg, { business_project_id: 117, name: '合作方 H5', source: 'product' });
     assert.equal(pr.project_code, 'PRJ-0500');
     await assert.rejects(mp2.createProject(cfg, { business_project_id: 117, name: '合作方 H5', source: 'product' }), /同名项目/);
-    const up = await mp2.updateProject(cfg, pr.id, { name: '合作方 H5 二期', revision: 0 }); assert.equal(up.revision, 1);
-    await assert.rejects(mp2.updateProject(cfg, pr.id, { name: 'x', revision: 0 }), /刚被别人改过/);
+    // 改项目是整体提交：只改名称时，平台上已有的说明和起止要原样带回去，不能被清空
+    Object.assign(mock.projects.find(x => x.id === pr.id), { description: '面向合作方的 H5 入口', planned_start: '2026-11-01', planned_end: '2026-12-15' });
+    const up = await mp2.updateProject(cfg, pr.id, { name: '合作方 H5 二期', revision: 0 }, { productId: 117 }); assert.equal(up.revision, 1);
+    assert.deepEqual([up.name, up.description, up.planned_start, up.planned_end, up.startFilled], ['合作方 H5 二期', '面向合作方的 H5 入口', '2026-11-01', '2026-12-15', false]);
+    const up2 = await mp2.updateProject(cfg, pr.id, { name: '合作方 H5 二期', planned_end: '2026-12-31', revision: 1 }, { productId: 117 });
+    assert.deepEqual([up2.description, up2.planned_start, up2.planned_end], ['面向合作方的 H5 入口', '2026-11-01', '2026-12-31'], '只改结束日期，说明和开始不动');
+    await assert.rejects(mp2.updateProject(cfg, pr.id, { name: 'x', revision: 0 }, { productId: 117 }), /刚被别人改过/);
+    await assert.rejects(mp2.updateProject(cfg, pr.id, { name: 'x', revision: 2 }), /不知道这个项目在哪个平台产品下/, '读不到当前值就不提交，宁可不改也不清空');
+    await assert.rejects(mp2.updateProject(cfg, 9999, { name: 'x', revision: 0 }, { productId: 117 }), /找不到这个项目/);
+    // 起止成对：平台上没有起止的项目，本地只定了结束时，开始按今天补（今天晚于结束就同一天）
+    const bare = await mp2.createProject(cfg, { business_project_id: 117, name: '没有排期的项目', source: 'product' }); assert.equal(bare.startFilled, false);
+    const up3 = await mp2.updateProject(cfg, bare.id, { name: '没有排期的项目', planned_end: '2099-01-31', revision: 0 }, { productId: 117 });
+    assert.equal(up3.startFilled, true); assert.equal(up3.planned_start, new Date().toISOString().slice(0, 10)); assert.equal(up3.planned_end, '2099-01-31');
+    const past = await mp2.createProject(cfg, { business_project_id: 117, name: '补录的老项目', planned_end: '2020-01-31', source: 'product' });
+    assert.deepEqual([past.planned_start, past.planned_end, past.startFilled], ['2020-01-31', '2020-01-31', true]);
+    const d = {}; assert.equal(mp2.pairDates(d), false); assert.throws(() => mp2.pairDates({ planned_start: '2026-01-01' }), /同时填写/);
+  } finally { mock.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('连接所有者没有写权限（403 forbidden）：说清楚是账号权限的问题，不是连接没勾', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jmd-owner-')), credentialFile = path.join(dir, 'c.json');
+  fs.writeFileSync(credentialFile, JSON.stringify({ token: 'test-token' }));
+  const ops = ['PUT:/api/requirement/{id}', 'POST:/api/v1/plans/projects', 'POST:/api/requirement'];
+  const mock = await startMock({ grants: ops, requirements: [{ id: 1, title: 't', business_project_id: 117 }], ownerForbidden: ops });
+  const cfg = { mp2: { baseUrl: mock.url, credentialFile } };
+  try {
+    for (const run of [() => mp2.updateRequirement(cfg, 1, { priority: 'P1' }), () => mp2.createProject(cfg, { business_project_id: 117, name: 'x', source: 'product' }), () => mp2.createRequirement(cfg, { title: 'x' })])
+      await assert.rejects(run(), e => /账号没有这项写权限/.test(e.message) && e.status === 403 && e.final === true);
+    await assert.rejects(mp2.updateProject(cfg, 1, { name: 'x', revision: 0 }, { productId: 117 }), /没有这项操作的权限/, '连接没勾读取项目时仍按「连接没勾」提示');
   } finally { mock.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });

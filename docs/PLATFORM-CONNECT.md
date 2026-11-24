@@ -57,8 +57,9 @@
 
 ## 2.2 工作台以需求管理平台为准（D87，已实现）
 
-- **拉取**（工作台「从需求管理平台拉取」，助手 `sync_mp2_tree`）：产品树 `GET /api/v1/plans/portfolio/tree`（项目节点带 `revision`、`requirement_ids`）+ 全部原始需求 `GET /api/requirement/list`（分页）。项目、需求落成工作台的工作（`m2j_` / `m2r_`，已对应的本地工作沿用原 id）；需求按 `requirement_ids` 挂到项目，其余挂在平台产品下；分组 = 产品线路径 › 平台产品。MP2 管的字段每次以平台为准（`workmodel.MP2_OWNED`，基线存 `mp2Base`）；平台上删了的标「找不到」，不删本地。
-- **回写**（保存即回写；JM Desk 助手补充信息自动回写，本机 AI 仍逐次确认）：需求 `PUT /api/requirement/{id}` 只送改动字段（标题、说明、优先级、类型、期望交付、平台产品）；项目 `PUT /api/v1/plans/projects/{id}`（名称、计划结束，带 revision；平台产品创建后固定）。层级、上级、状态以平台为准，在 JM Desk 只读。回写失败本地照样保存、标「待回写」（`mp2Dirty`），下次保存或拉取时先重试，拉取不覆盖这些字段。
+- **拉取**（工作台「从需求管理平台拉取」，助手 `sync_mp2_tree`）：产品树 `GET /api/v1/plans/portfolio/tree`（项目节点带 `revision`、`requirement_ids`；`requirement_ids` 是原始需求 id，拆分出的产品需求折回原始需求，和平台页面上按拆分后条数计的「需求数」不一定相等，JM Desk 只用它把需求挂到项目下，不拿它当需求数汇报）+ 全部原始需求 `GET /api/requirement/list`（分页）。项目、需求落成工作台的工作（`m2j_` / `m2r_`，已对应的本地工作沿用原 id）；需求按 `requirement_ids` 挂到项目，其余挂在平台产品下；分组 = 产品线路径 › 平台产品。MP2 管的字段每次以平台为准（`workmodel.MP2_OWNED`，基线存 `mp2Base`）；平台上删了的标「找不到」，不删本地。
+- **回写**（保存即回写；JM Desk 助手补充信息自动回写，本机 AI 仍逐次确认）：需求 `PUT /api/requirement/{id}` 只送改动字段（标题、说明、优先级、类型、期望交付、平台产品）；项目 `PUT /api/v1/plans/projects/{id}`（名称、计划结束，带 revision；平台产品创建后固定）。**改项目是整体提交**：平台会把请求里没带的说明和起止清空，所以 JM Desk 先用 `GET /api/v1/plans/projects?productId=` 读出当前的说明和起止，把改动盖上去再提交（`src/mp2.mjs` 的 `updateProject`）；读不到当前值就不提交。平台要求起止成对：只定了结束时，开始按今天补，并在历史里注明。层级、上级、状态以平台为准，在 JM Desk 只读。回写失败本地照样保存、标「待回写」（`mp2Dirty`），下次保存或拉取时先重试，拉取不覆盖这些字段。
+- **权限**：平台按连接所有者的账号权限判断写操作。连接勾了某项操作、但账号本身没有对应写权限时返回 403 `forbidden`，JM Desk 提示「账号没有这项写权限」（区别于连接没勾的 `operation_not_granted`）。助手经平台 MCP 写功能的备注、排期、版本、效果时同样适用。
 - **新建**：本地需求上传为原始需求（2.1）；本地项目 `POST /api/v1/plans/projects`（`source: product`）新建为平台研发项目。同名时不重复创建，给出候选。
 - **待归入**：本地还没对应平台的项目 / 需求，以及顶层、没有平台产品的待办 / 专项，拉取后由 AI 给建议（`mp2Suggest`：bind 对应已有 / create 新建到某平台产品 / anchor 归到某平台产品），只接受产品树里真实存在的产品、项目、需求；人点「按建议」或助手 `apply_mp2_suggestion` 后才生效。对应到已拉取的记录时，拉取副本并进本地那条（`foldMp2Duplicates`）。
 - AI 整理（汇总 / AI 整理）只能用产品树里的平台产品名，认不出的不写（留 `anchorHint`）；不改平台记录上 MP2 管的字段。

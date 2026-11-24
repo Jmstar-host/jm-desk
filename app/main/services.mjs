@@ -106,9 +106,10 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     let p; try { p = wm.mp2Patch(it, { taxonomy: taxonomy() }); } catch (e) { return { ok: false, error: e.message } }
     if (!p) return null;
     try {
-      const r = p.kind === 'requirement' ? await mp2.updateRequirement(cfg, p.id, p.body) : await mp2.updateProject(cfg, p.id, p.body);
+      // 项目是整体提交：updateProject 会先读平台上的当前值（说明、起止），把改动盖上去再提交
+      const r = p.kind === 'requirement' ? await mp2.updateRequirement(cfg, p.id, p.body) : await mp2.updateProject(cfg, p.id, p.body, { productId: it.mp2.productId ?? (taxonomy().projects || []).find(x => x.mp2Id === it.mp2.id)?.productMp2Id ?? (taxonomy().products || []).find(x => x.id === it.productId)?.mp2Id });
       const w2 = loadWork(), it2 = w2.find(x => x.id === id);
-      if (it2) { wm.markMp2Pushed(it2, p, r); (it2.history ||= []).push({ at: new Date().toISOString(), by, fields: p.fields, note: `已回写需求管理平台 ${it2.mp2.code || '#' + it2.mp2.id}` }); it2.history = it2.history.slice(-20); saveWork(w2); }
+      if (it2) { wm.markMp2Pushed(it2, p, r); (it2.history ||= []).push({ at: new Date().toISOString(), by, fields: p.fields, note: `已回写需求管理平台 ${it2.mp2.code || '#' + it2.mp2.id}${r?.startFilled ? '（平台要求起止成对，计划开始按今天填）' : ''}` }); it2.history = it2.history.slice(-20); saveWork(w2); }
       return { ok: true, fields: p.fields, code: it2?.mp2.code || null };
     } catch (e) {
       const w2 = loadWork(), it2 = w2.find(x => x.id === id); if (it2) { wm.markMp2Failed(it2, p, e.message); saveWork(w2); }
@@ -188,7 +189,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     t.projects = [...(t.projects || []).filter(p => p.mp2Id !== r.id), { id: `mp2:j:${r.id}`, mp2Id: r.id, name: r.name, code: r.project_code || null, productId: prod.id,
       path: prod.path, state: 'idle', start: r.planned_start || null, end: r.planned_end || null, revision: r.revision ?? 0, requirementIds: [] }];
     dataStore.write('taxonomy.json', t);
-    const w = loadWork(); wm.bindMp2(w, id, { id: r.id }, { taxonomy: t, by }); const h = w.find(x => x.id === id).history; h[h.length - 1].note = `在需求管理平台新建项目 ${r.project_code || '#' + r.id}`;
+    const w = loadWork(); wm.bindMp2(w, id, { id: r.id }, { taxonomy: t, by }); const h = w.find(x => x.id === id).history; h[h.length - 1].note = `在需求管理平台新建项目 ${r.project_code || '#' + r.id}${r.startFilled ? '（平台要求起止成对，计划开始按今天填）' : ''}`;
     wm.mergeMp2(w, { taxonomy: { ...t, projects: t.projects.filter(p => p.mp2Id === r.id) }, partial: true }); saveWork(w);
     desk.log('moved', `新建项目 · ${body.name} → MP2 ${r.project_code || '#' + r.id}`, { work: id });
     return { ok: true, id: r.id, code: r.project_code || null, title: r.name, product: prod.name, item: workItem(id) };

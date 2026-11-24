@@ -20,6 +20,9 @@ const OP_REQ_CREATE = 'POST:/api/requirement';
 const OP_REQ_UPDATE = 'PUT:/api/requirement/{id}';
 const OP_PRJ_CREATE = 'POST:/api/v1/plans/projects';
 const OP_PRJ_UPDATE = 'PUT:/api/v1/plans/projects/{id}';
+const OP_PRJ_LIST = 'GET:/api/v1/plans/projects';
+/* 与平台 PlatformProjectService.apply 同一条规则：起止要么都填要么都不填，开始不晚于结束 */
+const badDates = b => (b.planned_start == null) !== (b.planned_end == null) || (b.planned_start != null && b.planned_start > b.planned_end);
 const TYPES = new Set(['feishu_im', 'feishu_meeting', 'mail']);
 
 function validateSource(b) {
@@ -45,7 +48,7 @@ function validateSource(b) {
  * 测试钩子：links.approve(code) / deny(code) / expire(code)；linkInterval（秒）与 linkMinGapMs 用来缩短测试。 */
 const crypto = await import('node:crypto');
 const sha = v => crypto.createHash('sha256').update(v).digest('hex');
-export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH, OP_MY], mirrorHttp = false, linkInterval = 5, linkMinGapMs = 5000, portfolio = { origin: 'global', nodes: [] }, requirements = [], links = [], scope = null, projects = [] } = {}) {
+export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH, OP_MY], mirrorHttp = false, linkInterval = 5, linkMinGapMs = 5000, portfolio = { origin: 'global', nodes: [] }, requirements = [], links = [], scope = null, projects = [], ownerForbidden = [] } = {}) { // ownerForbidden：连接勾了、但所有者账号没有写权限的操作 → 403 forbidden
   const created = [], updates = [];
   const devLinks = new Map(); let linkRequests = 0;
   const batches = new Map(), byRef = new Map(), receipts = new Map(), candidates = [], calls = [];
@@ -92,6 +95,7 @@ export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH
       if (receipts.has(call.requestId)) { const r = receipts.get(call.requestId); return send(mirrorHttp ? r.http_status : 200, { replayed: true, receipt: r }); }
       let result;
       if (!granted.has(call.operationId)) result = { status: 403, detail: 'operation_not_granted' };
+      else if (ownerForbidden.includes(call.operationId)) result = { status: 403, detail: 'forbidden' };
       else if (call.operationId === OP_SOURCES) {
         const b = call.body;
         if (failing > 0) { failing--; result = { status: failHttp, detail: 'upstream_error' }; }
@@ -143,12 +147,17 @@ export function startMock({ token = 'test-token', grants = [OP_SOURCES, OP_BATCH
       } else if (call.operationId === OP_PRJ_CREATE) {
         const b = call.body || {};
         if (projects.some(x => x.business_project_id === b.business_project_id && x.name === b.name)) result = { status: 409, detail: '同一业务产品下已有同名项目' };
-        else { const pr = { id: 500 + projects.length, project_code: 'PRJ-' + String(500 + projects.length).padStart(4, '0'), revision: 0, ...b }; projects.push(pr); result = pr; }
+        else if (badDates(b)) result = { status: 400, detail: '请同时填写有效的开始和结束日期，或都不填' };
+        else { const pr = { id: 500 + projects.length, description: null, planned_start: null, planned_end: null, project_code: 'PRJ-' + String(500 + projects.length).padStart(4, '0'), revision: 0, ...b }; projects.push(pr); result = pr; }
       } else if (call.operationId === OP_PRJ_UPDATE) {
         const pr = projects.find(x => x.id === Number(call.path?.id)), b = call.body || {};
         if (!pr) result = { status: 404, detail: '项目不存在' };
         else if (b.revision !== pr.revision) result = { status: 409, detail: 'revision_conflict' };
-        else { Object.assign(pr, b, { revision: pr.revision + 1 }); result = { ...pr }; }
+        else if (badDates(b)) result = { status: 400, detail: '请同时填写有效的开始和结束日期，或都不填' };
+        // 整体提交：名称、说明、起止按请求体整个替换，没带的说明和起止被清空（来源省略则保留）
+        else { Object.assign(pr, { name: b.name, description: b.description ?? null, planned_start: b.planned_start ?? null, planned_end: b.planned_end ?? null, revision: pr.revision + 1 }); result = { ...pr }; }
+      } else if (call.operationId === OP_PRJ_LIST) {
+        result = projects.filter(x => x.business_project_id === Number(call.query?.productId)).map(x => ({ ...x }));
       } else result = { status: 404, detail: 'operation_not_found' };
       const httpStatus = typeof result.status === 'number' ? result.status : 200;
       const receipt = { id: 'r' + (receipts.size + 1), operation_id: call.operationId, request_id: call.requestId, status: httpStatus < 400 ? 'succeeded' : 'failed', http_status: httpStatus };

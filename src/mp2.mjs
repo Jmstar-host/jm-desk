@@ -193,6 +193,7 @@ export async function createRequirement(cfg, body) {
     if (/标题已存在|title.*(exist|duplicat)/i.test(`${e.message} ${result?.message || ''} ${result?.error || ''}`)) Object.assign(e, { code: 'title_duplicated', message: '需求管理平台已有同名需求' });
     else if (/operation_not_granted/.test(e.message)) e.message = '这个关联没有「原始需求」的新建权限：到需求管理平台「AI 接入」里给这个连接勾上';
     else if (/outside_responsibility_scope/.test(e.message)) e.message = '这条需求的平台产品不在这个关联的负责范围里：在工作台把平台产品改成负责范围内的，或到需求管理平台「AI 接入」调整负责范围';
+    else if (http === 403 && !result?.message) e.message = OWNER_FORBIDDEN;
     else if (result?.message) e.message = `MP2 拒绝：${result.message}`;
     throw e;
   }
@@ -223,6 +224,7 @@ export async function responsibility(cfg) {
 export const OP_REQUIREMENT_UPDATE = 'PUT:/api/requirement/{id}';
 export const OP_PROJECT_CREATE = 'POST:/api/v1/plans/projects';
 export const OP_PROJECT_UPDATE = 'PUT:/api/v1/plans/projects/{id}';
+export const OP_PROJECT_LIST = 'GET:/api/v1/plans/projects';
 
 /** 全部原始需求（分页拉完，最多 limit 条）：[{ id, code, title, description, priority, status, product_id, expected_date, deadline, requirement_type, updated_at }] */
 export async function listRequirements(cfg, { pageSize = 200, limit = 5000 } = {}) {
@@ -239,6 +241,8 @@ export async function listRequirements(cfg, { pageSize = 200, limit = 5000 } = {
   return out.slice(0, limit);
 }
 
+/* 平台按「连接所有者」的权限判断写操作：连接勾了这项操作、但所有者的账号本身没有对应的写权限时回 403 forbidden */
+const OWNER_FORBIDDEN = '你的需求管理平台账号没有这项写权限（AI 连接按账号本人的权限判断）：请管理员给账号开通，或在平台页面上由有权限的人操作';
 /* 写操作的统一处理：成功回执才算；把常见拒绝原因翻成人话 */
 async function write(cfg, operationId, { path, body, task }) {
   const { http, receipt, result, replayed } = await call(cfg, { operationId, path, body, requestId: readId('w'), task }, 30000);
@@ -247,6 +251,7 @@ async function write(cfg, operationId, { path, body, task }) {
     const e = rejectFromResult(http, receipt, result);
     if (/operation_not_granted/.test(e.message)) e.message = '这个关联没有这项操作的权限：到需求管理平台「AI 接入」里给这个连接勾上';
     else if (/outside_responsibility_scope/.test(e.message)) e.message = '平台产品不在这个关联的负责范围里';
+    else if (http === 403) e.message = OWNER_FORBIDDEN;
     else if (/revision|conflict|已被修改/i.test(e.message) || http === 409) e.message = `需求管理平台上这条记录刚被别人改过，先「从需求管理平台拉取」再改（${e.message}）`;
     throw e;
   }
@@ -254,11 +259,38 @@ async function write(cfg, operationId, { path, body, task }) {
 }
 /** 改原始需求：只送改动字段（MP2 对 null / 省略的字段保持原值）。 */
 export const updateRequirement = (cfg, id, body) => write(cfg, OP_REQUIREMENT_UPDATE, { path: { id }, body, task: 'JM Desk 工作台：回写需求修改' });
-/** 改平台研发项目：name 必填、带 revision；平台产品创建后固定。返回 ProjectSummary（含新 revision）。 */
-export const updateProject = (cfg, id, body) => write(cfg, OP_PROJECT_UPDATE, { path: { id }, body, task: 'JM Desk 工作台：回写项目修改' });
+/** 一个平台产品下的研发项目（含说明、起止、revision）：[{ id, project_code, name, description, planned_start, planned_end, revision, … }] */
+export async function listProjects(cfg, productId) {
+  const r = await read(cfg, OP_PROJECT_LIST, { query: { productId }, what: 'projects' });
+  return Array.isArray(r) ? r : r?.items || [];
+}
+const today = () => new Date().toISOString().slice(0, 10);
+/* 平台要求起止要么都填、要么都不填，开始不晚于结束。只给了结束时，开始按今天填（今天已经晚于结束就和结束同一天）；返回是否补过 */
+export function pairDates(body, now = today()) {
+  if (body.planned_end && !body.planned_start) { body.planned_start = now <= body.planned_end ? now : body.planned_end; return true; }
+  if (body.planned_start && !body.planned_end) throw fail('需求管理平台要求项目的计划开始和计划结束同时填写：先定一个计划结束日期', { code: 'dates_unpaired', final: true });
+  return false;
+}
+/** 改平台研发项目。平台的这个接口是「整体提交」：名称、说明、起止都要带上，省略的说明和起止会被清空（2026-11-24 平台 D88 明确）。
+ * 所以先读出平台上的当前值，把这次的改动盖上去，再连同 revision 一起提交；revision 对不上时平台拒绝，不会用旧值覆盖别人的修改。
+ * changes：{ name?, description?, planned_start?, planned_end?, revision }；productId 是项目所在平台产品的 MP2 id（读当前值用）。
+ * 返回 ProjectSummary（含新 revision），多一个 startFilled：这次是否替用户补了计划开始。 */
+export async function updateProject(cfg, id, changes, { productId } = {}) {
+  if (productId == null) throw fail('不知道这个项目在哪个平台产品下：先「从需求管理平台拉取」再改', { code: 'product_unknown', final: true });
+  let list;
+  try { list = await listProjects(cfg, productId); }
+  catch (e) { if (e.code === 'operation_not_granted') e.message = '这个关联没有这项操作的权限：改项目要先读出平台上的说明和起止，到需求管理平台「AI 接入」里给这个连接勾上项目的查看'; throw e; }
+  const cur = list.find(p => Number(p.id) === Number(id));
+  if (!cur) throw fail('需求管理平台上找不到这个项目了：先「从需求管理平台拉取」', { code: 'project_not_found', final: true });
+  const body = { name: cur.name, description: cur.description ?? null, planned_start: cur.planned_start ?? null, planned_end: cur.planned_end ?? null, ...changes };
+  const startFilled = pairDates(body);
+  const r = await write(cfg, OP_PROJECT_UPDATE, { path: { id }, body, task: 'JM Desk 工作台：回写项目修改' });
+  return { ...r, startFilled };
+}
 /** 新建平台研发项目：{ business_project_id, name, description?, planned_start?, planned_end?, source: 'product' } */
 export async function createProject(cfg, body) {
-  const r = await write(cfg, OP_PROJECT_CREATE, { body, task: 'JM Desk 工作台：新建项目' });
+  body = { ...body }; const startFilled = pairDates(body);
+  const r0 = await write(cfg, OP_PROJECT_CREATE, { body, task: 'JM Desk 工作台：新建项目' }), r = { ...r0, startFilled };
   if (r.id == null) throw fail('MP2 成功回执但没有项目 id', { code: 'missing_id' });
   return r;
 }
