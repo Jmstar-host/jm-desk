@@ -7,6 +7,7 @@ import * as mail from './mail.mjs';
 import { packSignals } from './summary.mjs';
 import * as wm from './workmodel.mjs';
 import * as digest from './digest.mjs';
+import { mergeContent as starMerge } from './star.mjs';
 const { store: desk } = pipeline;
 
 /* 读 Mailspring 库（node:sqlite 是同步的）放到工作线程里，不卡住主进程和精灵动画；工作线程起不来时退回直接调用 */
@@ -442,5 +443,15 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     for (const e of Object.values(clean)) if (e.sid && !(it.sids ||= []).includes(e.sid)) it.sids.push(e.sid); // 用到的线索挂到这条上，证据链里能看到
     it.evidence = { at: new Date().toISOString(), fields: clean }; saveWork(w); return it.evidence;
   }
-  return { stageReady, scopeIds, newDraft, aiFill, setEvidence, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  /* Star 勾选会话的线索（star.mjs 的 clueSignals）：新的一天新建一条（只在本机），同一天的新消息接在原来那条后面 */
+  function starClues(signals) {
+    let n = 0; const have = new Map(desk.listSignals().map(s => [s.id, s]));
+    for (const sig of signals) {
+      const old = have.get(sig.id);
+      if (!old) { if (desk.putSignal(sig)) { desk.updateSignal(sig.id, { status: 'local' }); n++; } continue; }
+      const merged = starMerge(old.content, sig.content); if (merged !== old.content) desk.updateSignal(sig.id, { content: merged, participants: [...new Set([...(old.participants || []), ...sig.participants])].slice(0, 20) });
+    }
+    return n;
+  }
+  return { starClues, stageReady, scopeIds, newDraft, aiFill, setEvidence, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }

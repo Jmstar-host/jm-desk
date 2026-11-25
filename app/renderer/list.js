@@ -8,7 +8,7 @@ if (process.platform !== 'darwin' || qs.get('embedded')) document.body.classList
 const call = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
 const when = t => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
 const ST = [['all', '全部'], ['queued', '待搬运'], ['submitted', '已送达'], ['failed', '失败'], ['ignored', '不搬运'], ['local', '只在本机']];
-const SRCS = [[null, '全部来源'], ['feishu_im', '飞书'], ['mail', '邮件'], ['feishu_meeting', '飞书会议'], ['meeting_local', '本机会议']];
+const SRCS = [[null, '全部来源'], ['feishu_im', '飞书'], ['mail', '邮件'], ['feishu_meeting', '飞书会议'], ['meeting_local', '本机会议'], ['star_im', 'Star']];
 const LV = { program: '专项', project: '项目', requirement: '需求', todo: '待办' };
 const derivedText = d => { const n = {}; for (const x of d || []) n[x.level] = (n[x.level] || 0) + 1; return ['requirement', 'todo', 'project'].filter(k => n[k]).map(k => `${LV[k]} ${n[k]}`).join(' · '); };
 const STATUS_TEXT = { queued: '待搬运', submitted: '已送达', failed: '失败', ignored: '不搬运', local: '只在本机' };
@@ -43,7 +43,7 @@ async function show(id) {
   const act = h('div', { class: 'act' });
   if (d.status === 'queued') act.append(h('button', { onclick: () => setIgnore(id, true) }, '不搬运这条'));
   if (d.status === 'ignored') act.append(h('button', { onclick: () => setIgnore(id, false) }, '恢复搬运'));
-  if (d.status === 'local') act.append(h('button', { title: '把这份会议纪要送进需求管理平台的个人需求池', onclick: () => setIgnore(id, false) }, '送到需求管理平台'));
+  if (d.status === 'local') act.append(h('button', { title: '把这条线索送进需求管理平台的个人需求池', onclick: () => setIgnore(id, false) }, '送到需求管理平台'));
   if (d.url) act.append(h('button', { onclick: () => ipcRenderer.invoke('svc:open-url', d.url) }, '打开原文'));
   const body = [];
   if (d.messages) {
@@ -82,12 +82,23 @@ $('#srcs').onclick = async () => {
   const SRC = { mail: '邮件', feishu_im: '飞书', feishu_meeting: '会议' };
   try {
     const [p, t] = await Promise.all([call('svc:pool'), call('svc:ticker')]), st = p.status, o = st.outbox, msg = h('div');
+    /* Star：勾选的会话作为线索收进来（每天一条，只在本机），AI 整理和补全需求时能用 */
+    const starBox = h('div', { class: 'muted' }, '正在读取 Star…');
+    call('star:state').then(s => {
+      if (!s.base) return starBox.replaceChildren('还没接入 Star：在主窗口「聊天」页填 Star 地址。');
+      if (s.state !== 'ok') return starBox.replaceChildren(s.state === 'login' ? '在主窗口「聊天」页登录 Star 后，这里可以勾选要收进来的会话。' : 'Star 暂时连不上：' + (s.error || ''));
+      const on = new Set(s.convs.filter(c => c.clue).map(c => c.id)); starBox.className = '';
+      starBox.replaceChildren(h('div', { class: 'muted' }, '勾选的会话作为线索收进来（每天一条，只在本机），不勾的不碰。'),
+        ...s.convs.map(c => h('label', { class: 'sr' }, h('input', { type: 'checkbox', checked: c.clue, onchange: async e => { e.target.checked ? on.add(c.id) : on.delete(c.id); try { await call('star:clues', [...on]); } catch (er) { msg.replaceChildren(h('div', { class: 'err' }, er.message)); } } }),
+          h('span', {}, c.name), h('small', { class: 'muted' }, c.type === 'group' ? '群聊' : '单聊'))));
+    }).catch(e => { starBox.textContent = 'Star：' + e.message; });
     const remote = h('div', { class: 'muted' }, st.mp2.configured ? '正在读取需求管理平台…' : '还没有关联需求管理平台：线索只收集到本机，关联后再送出（设置 › 需求管理平台）。');
     body.replaceChildren(
       h('div', { class: 'stats' }, ...[['待搬运', o.queued], ['已送达', o.submitted], ['失败', o.failed]].map(([n, v]) => h('div', {}, h('b', {}, String(v ?? 0)), h('span', {}, n)))),
       h('div', { class: 'sec' }, '收哪些信息源'),
       ...Object.entries(st.sources).map(([k, v]) => h('label', { class: 'sr' }, h('input', { type: 'checkbox', checked: v.enabled, onchange: async e => { try { await call('svc:source-set', k, e.target.checked); } catch (er) { msg.replaceChildren(h('div', { class: 'err' }, er.message)); } } }),
         h('span', {}, v.label || SRC[k] || k), h('small', { class: 'muted' }, v.cursor ? '收到 ' + when(v.cursor) : '还没收集过'))), msg,
+      h('div', { class: 'sec' }, 'Star 对话'), starBox,
       h('div', { class: 'sec' }, '需求管理平台 · 我的需求池'), remote,
       h('div', { class: 'sec' }, '搬运记录'),
       h('div', { class: 'log' }, ...(t.length ? t.slice().reverse().slice(0, 30).map(x => h('div', { class: x.kind === 'error' ? 'e' : '' }, h('span', { class: 'muted' }, when(x.at) + '  '), x.text)) : [h('div', { class: 'muted' }, '还没有记录')])));

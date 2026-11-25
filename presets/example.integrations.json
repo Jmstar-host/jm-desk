@@ -1,6 +1,7 @@
 {
   "_note": "企业预置接入示例。打包时：JM_DESK_PRESET=presets/你的文件.json npm run dist:mac。这里只能放地址和工具白名单，不能放任何凭据。",
   "relay": "https://relay.example.com/jm-desk-relay",
+  "star": "https://chat.example.com/star/",
   "update": "https://relay.example.com/jm-desk-relay/dl/your-download-key/latest.json",
   "integrations": [
     {

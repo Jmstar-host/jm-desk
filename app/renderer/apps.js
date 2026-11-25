@@ -137,31 +137,33 @@ async function pagePeers(body) {
       cards.unshift(h('div', { class: 'card go' }, h('h3', {}, '去好友那里搬'),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, '找谁'), sel), ...scopeRows, ta,
         h('div', { class: 'row' }, h('button', { class: 'pri', disabled: !has || busy || (peer?.catalog && !secs.length), onclick: async () => { try { await inv('peer:visit', pick, ta.value, sec ? { section: sec.id, item: pickItem || null } : null); askDraft = ''; goMsg.replaceChildren(); draw(); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, busy ? '精灵出门中…' : '出发'),
-          h('span', { class: 'muted' }, !has ? '先在下面「加好友」' : sec ? '精灵飞到对方桌面，对方同意后只在这个范围里找' : '好友同意后，精灵在他开放的范围里找')), goMsg));
+          h('span', { class: 'muted' }, !has ? '先在下面和 Star 好友连上 JM Desk' : sec ? '精灵飞到对方桌面，对方同意后只在这个范围里找' : '好友同意后，精灵在他开放的范围里找')), goMsg));
     }
-    // 好友
-    cards.push(h('div', { class: 'card' }, h('h3', {}, `我的好友 ${S.peers.length}`),
-      ...(S.peers.length ? S.peers.map(p => h('div', { class: 'row peer' }, h('b', {}, p.name), h('span', { class: 'muted', title: '加好友时核对过的暗号' }, p.fp.join(' · ')),
-        h('select', { style: 'margin-left:auto', title: '好友等级：普通好友只能搬你开放的需求池、待办；知识好友还能问你接入的知识库', onchange: e => inv('peer:set', p.id, { tier: e.target.value }) },
-          ...Object.entries(S.tiers || {}).map(([k, n]) => h('option', { value: k, selected: (p.tier === 'basic' ? 'basic' : 'knowledge') === k }, n))),
-        h('select', { title: '它的精灵来串门时', onchange: e => inv('peer:set', p.id, { trust: e.target.value }) }, h('option', { value: 'ask', selected: p.trust !== 'trust' }, '每次问我'), h('option', { value: 'trust', selected: p.trust === 'trust' }, '完全信任')),
-        h('button', { class: 'ghost', onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认解除'; return; } await inv('peer:remove', p.id); draw(); } }, '解除'),
-        h('div', { class: 'folders' }, h('span', { class: 'muted' }, '开放的文件夹'),
-          ...(p.folders || []).map(f => h('span', { class: 'chip', title: f.path + '\n好友只能在里面按词找，拿到文件名和命中的几句，拿不到整份文件' }, '📁 ' + f.label, h('i', { class: 'x', title: '不再开放', onclick: async () => { await inv('peer:folder-remove', p.id, f.id); draw(); } }, '×'))),
-          h('button', { class: 'sm', title: '选一个只给这个好友看的文件夹', onclick: async ev => { try { await inv('peer:folder-add', p.id); draw(); } catch (err) { ev.target.after(h('span', { class: 'err' }, err.message)); } } }, '＋ 文件夹'))))
-      : [h('div', { class: 'muted' }, '还没有好友：用下面的好友码和同事加好友。')])));
-    // 加好友
-    const P = S.pending, pair = h('div', { class: 'card' }, h('h3', {}, '加好友'));
-    if (P?.peer) pair.append(h('div', {}, `对方：${P.peer.name}`), h('div', { class: 'muted' }, '和对方核对暗号，两边一样才点确认：'), h('div', { class: 'fp' }, ...P.fp.map(w => h('span', {}, w))),
-      h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:confirm').then(draw) }, '暗号一致，加好友'), h('button', { onclick: () => inv('peer:cancel').then(draw) }, '不一致，取消')));
-    else if (P?.role === 'offer') pair.append(h('div', { class: 'muted' }, '把好友码告诉同事，让他在「串门 › 加好友」里输入：'), h('div', { class: 'code' }, P.code.slice(0, 3) + ' ' + P.code.slice(3)),
-      h('div', { class: 'muted' }, `10 分钟内有效 · 等对方输入…`), h('div', { class: 'row' }, h('button', { onclick: () => inv('peer:cancel').then(draw) }, '取消')));
-    else {
-      const code = h('input', { placeholder: '输入同事给的 6 位好友码', style: 'flex:1', inputmode: 'numeric' });
-      pair.append(h('div', { class: 'row' }, h('button', { class: 'pri', onclick: async () => { try { await inv('peer:offer'); draw(); } catch (e) { msg.replaceChildren(errBox(e)); } } }, '生成好友码')),
-        h('div', { class: 'row' }, code, h('button', { onclick: async () => { try { await inv('peer:claim', code.value); draw(); } catch (e) { msg.replaceChildren(errBox(e)); } } }, '加入')), msg);
-    }
-    cards.push(pair);
+    // 好友：以 Star 为准（1.6.0）。连上 JM Desk 的 Star 好友才能互相搬运；分级、来访方式、开放的文件夹按每个好友设
+    const peerCtl = p => [
+      h('select', { style: 'margin-left:auto', title: '好友等级：普通好友只能搬你开放的需求池、待办；知识好友还能问你接入的知识库', onchange: e => inv('peer:set', p.id, { tier: e.target.value }) },
+        ...Object.entries(S.tiers || {}).map(([k, n]) => h('option', { value: k, selected: (p.tier === 'basic' ? 'basic' : 'knowledge') === k }, n))),
+      h('select', { title: '它的精灵来串门时', onchange: e => inv('peer:set', p.id, { trust: e.target.value }) }, h('option', { value: 'ask', selected: p.trust !== 'trust' }, '每次问我'), h('option', { value: 'trust', selected: p.trust === 'trust' }, '完全信任')),
+      h('div', { class: 'folders' }, h('span', { class: 'muted' }, '开放的文件夹'),
+        ...(p.folders || []).map(f => h('span', { class: 'chip', title: f.path + '\n好友只能在里面按词找，拿到文件名和命中的几句，拿不到整份文件' }, '📁 ' + f.label, h('i', { class: 'x', title: '不再开放', onclick: async () => { await inv('peer:folder-remove', p.id, f.id); draw(); } }, '×'))),
+        h('button', { class: 'sm', title: '选一个只给这个好友看的文件夹', onclick: async ev => { try { await inv('peer:folder-add', p.id); draw(); } catch (err) { ev.target.after(h('span', { class: 'err' }, err.message)); } } }, '＋ 文件夹'))];
+    const T = await ipcRenderer.invoke('star:state').then(r => r && r.ok === false ? { state: 'error', error: r.error } : r && 'data' in r ? r.data : r).catch(e => ({ state: 'error', error: e.message }));
+    const fr = h('div', { class: 'card' }, h('h3', {}, 'Star 好友'));
+    const openChat = h('button', { class: 'pri', onclick: () => ipcRenderer.invoke('star:open') }, '打开「聊天」页');
+    if (!T.base) fr.append(h('div', { class: 'muted' }, '好友以 Star 为准：先在主窗口「聊天」页填 Star 地址并登录。'), h('div', { class: 'row' }, openChat));
+    else if (T.state !== 'ok') fr.append(h('div', { class: 'muted' }, T.state === 'login' ? '在主窗口「聊天」页登录 Star 后，这里显示你的 Star 好友。' : 'Star 暂时连不上：' + (T.error || '')), h('div', { class: 'row' }, openChat));
+    else if (!T.friends.length) fr.append(h('div', { class: 'muted' }, '你在 Star 里还没有好友：在「聊天」页加好友后，这里会自动出现。'));
+    else fr.append(h('div', { class: 'muted' }, '和好友连上 JM Desk 之后，才能让精灵去对方桌面搬资料；搬运内容端到端加密，Star 服务器看不到。'),
+      ...T.friends.map(f => { const p = S.peers.find(x => x.id === f.peerId);
+        return h('div', { class: 'row peer' }, h('b', {}, f.name), p ? h('span', { class: 'tag ok', title: '暗号：' + (p.fp || []).join(' · ') }, '已连上 JM Desk') : h('span', { class: 'muted' }, f.invited ? '已发出连接，等对方的 JM Desk 回应' : '还没连上 JM Desk'),
+          ...(p ? peerCtl(p) : [h('button', { class: 'sm', style: 'margin-left:auto', title: '在 Star 单聊里发一条连接消息；对方也装了 JM Desk 并登录 Star 时会自动连上', onclick: async ev => { try { await inv('star:pair', f.id); draw(); } catch (err) { ev.target.after(h('span', { class: 'err' }, err.message)); } } }, f.invited ? '再发一次' : '连接 JM Desk')]));
+      }));
+    cards.push(fr);
+    // 以前用好友码加的好友（1.6.0 之前）：照常能搬运，新的好友都走 Star
+    const old = S.peers.filter(p => !p.starId);
+    if (old.length) cards.push(h('div', { class: 'card' }, h('h3', {}, `以前用好友码加的好友 ${old.length}`),
+      ...old.map(p => h('div', { class: 'row peer' }, h('b', {}, p.name), h('span', { class: 'muted', title: '加好友时核对过的暗号' }, (p.fp || []).join(' · ')), ...peerCtl(p),
+        h('button', { class: 'ghost', onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认解除'; return; } await inv('peer:remove', p.id); draw(); } }, '解除')))));
     { const go = cards.findIndex(c => c.classList?.contains('go')); if (go > 0) cards.unshift(cards.splice(go, 1)[0]); }
     // 开放给好友的范围
     const share = { ...S.share };

@@ -32,7 +32,7 @@
 | 动作 id | 名称 | 类型 |
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
-| `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的三个页面）、主窗口（上次看的页面） | 命令 |
+| `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的页面）、主窗口（上次看的页面）；主窗口还有「聊天」页（Star，见 §4.5） | 命令 |
 | `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
 | `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` | 邮箱 写邮件 未读 | 邮箱（调起本机邮件客户端） |
@@ -90,6 +90,13 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `app/main/peerhub.mjs`：加好友、收信循环、出门与接待。
   - `main.mjs`：负责接窗口、动画和本机搜索。
   - 界面：面板「搬运」（`apps.js` 的 `pagePeers`，「工作」组）、访客窗口 `renderer/visitor.*`、精灵出门和回来的动画（`sprite.js` 的 `tripLeave` / `tripReturn`）。
+- **好友以 Star 为准**（1.6.0，`app/main/star.mjs`，主进程 `starSync` / `star:*`）：Star 是团队自己部署的私有聊天（和 DSH NEXT 里用的是同一套）。
+  - 地址：`settings.star.base`，或企业预置文件顶层的 `star`（https，或局域网 / Tailnet 的 http）。开源版为空。
+  - 主窗口「聊天」页内嵌 Star 网页，独立会话分区 `persist:star`（不给网页本机权限，跨域链接用系统浏览器打开）。用户在里面登录一次，主进程沿用这次登录的 Cookie（`star_sid`）调 Star 的接口（带 `x-star: 1` 头），不另存密码。
+  - 访问 Star 默认直连、不走系统代理（本机代理常常不转发内部域名，会直接断开）；直连失败自动改用系统代理再试，结果记在 `settings.star.proxy`。
+  - 每分钟同步一次（`starSync`）：「聊天」页签的未读角标；好友单聊里的配对消息（`jmdesk-pair:v1:`，带本机搬运用的公钥和信箱号）——收到就 `peerHub.adoptStar` 收下对方，并自动回一条自己的；勾选的会话按天聚合成 `star_im` 线索（只在本机，同一天的新消息接在后面，跳过配对消息和系统消息），送平台时按「聊天」类型。
+  - 「搬运」页的好友列表来自 Star：已连上 JM Desk 的好友可以设等级、来访方式、开放的文件夹；没连上的点「连接 JM Desk」，在 Star 单聊里发一条配对消息。搬运内容照旧走 JM Desk 的端到端加密中转，Star 服务器看不到。经 Star 新连上的好友默认普通好友。
+  - 去掉了 6 位好友码的界面；以前用好友码加的好友单列在「以前用好友码加的好友」里，照常能搬运。
 - **身份**：每台桌面一对 X25519 密钥，加上一把信箱钥匙（信箱号 = sha256(钥匙)），用 `safeStorage` 加密存在 `secrets.json` 的 `peer` 下。好友名单存在 `DATA/peers.json`，记录存在 `DATA/peer-trips.json`。
 - **加好友**：A 申请 6 位好友码（10 分钟内有效，只能用一次），B 认领。双方用 ECDH 算出共同密钥，界面显示 4 个暗号供人工核对，防止中转偷换公钥。消息用 AES-256-GCM 加密，并以发信方信箱号作为附加数据。
 - **可搬运目录**（1.2.0，`peers.mjs` 的 `cleanCatalog` / `findScope` / `matchRows`，`main.mjs` 的 `peerCatalog`）：搬运前先定范围，免得对方在全部开放内容里空找。
@@ -168,6 +175,7 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
 - **企业预置接入**：`JM_DESK_PRESET=/path/integrations.json npm run dist:mac`。
   - 打包前，`scripts/apply-preset.mjs` 把它写入 `app/builtin/integrations.json`；打包后自动清空，所以**仓库里永远是空的**。格式见 `presets/example.integrations.json`。
   - 预置文件顶层可以写 `relay`：串门中转地址，必须是 https。
+  - 预置文件顶层可以写 `star`：Star 私有聊天地址（https，或局域网的 http），主窗口「聊天」页直接打开它。
   - 预置文件顶层可以写 `update`：升级地址（`latest.json` 的 https 地址），打包时写进 `app/builtin/update.json`，打完自动清空。用中转的下载目录时是 `<中转地址>/dl/<下载口令>/latest.json`。
   - 预置项可以写：`urls`（备用地址，只在连不上时切换）、`allowTools`（工具白名单）、`readOnly`、`knowledge: true`、`credential: { type: "bearer", label, help, inheritEnv }`。
   - **预置文件里不能放凭据**，脚本检测到会拒绝写入。凭据由使用者在界面里粘贴，或者填本机凭据文件的路径（只引用，不复制）。`inheritEnv` 会自动继承本机已有配置里同名变量指向的凭据文件。
@@ -196,6 +204,7 @@ app/main/deeplink.mjs      jmdesk:// 唤起链接解析
 app/main/providers.mjs     多模型来源、按任务路由、额度、隐私策略
 app/main/reminders.mjs     员工提醒
 app/main/peers.mjs         串门：密钥、加密、中转客户端；peerhub.mjs 调度
+app/main/star.mjs          Star 私有聊天：接口客户端（沿用聊天页登录的 Cookie）、配对消息、会话按天聚合成线索
 relay/server.mjs           串门中转（只转发密文）
 app/main/gallery.mjs       形象库下载 / 导入
 app/main/updater.mjs       应用内升级
@@ -205,7 +214,7 @@ app/renderer/sprite.*      精灵窗口：飞行、拖动、两圈菜单的几�
 app/renderer/hud.*         以精灵为中心的提示层：气泡菜单、说话气泡、右键卡片
 app/renderer/engine.mjs    3D 舞台、特效、形象包加载；lumi.mjs 是默认形象
 app/renderer/panel.*       精灵旁边的面板（设置和各功能页，apps.js 是功能页）
-app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 + 搬运、设置）；三个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载
+app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 / 聊天 + 搬运、设置）；每个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载；聊天页内嵌 Star 网页，没填地址时是 star.html
 app/renderer/chat.*        助手（多轮对话）；work.* 是工作台（含汇总、勾待办）；list.* 是线索（含信息源与搬运记录）
 app/renderer/tokens.css    色板（粉 / 蓝 / 黑 / 白 + 紫绿橙红），所有窗口只从这里取色
 app/renderer/theme.css     共用视觉：控件样式只写在这里，颜色全部引用 tokens.css

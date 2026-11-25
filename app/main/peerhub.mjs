@@ -63,6 +63,17 @@ export function createPeerHub(d) {
     d.onUpdate(); return state();
   }
   function cancelPair() { pending = null; d.onUpdate(); return state(); }
+  /* Star 好友（1.6.0）：配对消息经 Star 传过来，Star 账号就是身份。已有同一个 Star 好友或同一个信箱的，更新公钥；新的默认普通好友 */
+  const myCard = () => ({ pub: me().pub, box: me().box, name: d.myName() });
+  async function adoptStar({ starId, name, pub, box }) {
+    const list = peers(); let p = list.find(x => x.starId === starId) || list.find(x => x.box === box);
+    const fresh = !p || p.pub !== pub || p.box !== box;
+    if (!p) { p = { id: box.slice(0, 12), status: 'paired', trust: 'ask', tier: 'basic', since: new Date().toISOString() }; list.push(p); }
+    Object.assign(p, { box, pub, name: clip(name, 30) || p.name || 'Star 好友', starId, via: 'star', status: 'paired', fp: P.fingerprint(me().pub, pub) });
+    savePeers(list.filter((x, i, a) => a.findIndex(y => y.box === x.box) === i));
+    if (fresh) { await send(p, { type: 'hello', name: d.myName(), look: d.myLook() }).catch(() => {}); await send(p, { type: 'catalog-req' }).catch(() => {}); ensureLoop(); d.onUpdate(); }
+    return p;
+  }
   function setPeer(id, patch) {
     const list = peers(), p = list.find(x => x.id === id); if (!p) throw new Error('没有这个好友');
     if (patch.trust) p.trust = patch.trust === 'trust' ? 'trust' : 'ask';
@@ -183,12 +194,12 @@ export function createPeerHub(d) {
   function state() {
     return {
       relay: d.relay(), me: { name: d.myName(), ready: !!d.getIdentity()?.pub }, share: d.settings().peers?.share || { knowledge: true },
-      peers: peers().map(p => ({ id: p.id, name: name(p), fp: p.fp, trust: p.trust, tier: P.tierOf(p), folders: (p.folders || []).map(f => ({ id: f.id, label: f.label, path: f.path })), since: p.since, catalog: p.catalog || null })),
+      peers: peers().map(p => ({ id: p.id, name: name(p), fp: p.fp, trust: p.trust, tier: P.tierOf(p), starId: p.starId ?? null, folders: (p.folders || []).map(f => ({ id: f.id, label: f.label, path: f.path })), since: p.since, catalog: p.catalog || null })),
       pending: pending ? { role: pending.role, code: pending.code, expires: pending.expires, peer: pending.peer ? { name: pending.peer.name } : null, fp: pending.fp || null } : null,
       trips: [...trips.values()].map(t => ({ id: t.id, peer: name(t.peer), ask: t.ask, scope: t.scope || '', status: t.status, result: t.result || null })),
       guests: [...guests.values()].filter(g => g.status !== 'gone').map(g => ({ id: g.id, peer: name(g.peer), ask: g.ask, scope: g.scope?.label || '', status: g.status })),
       history: history().slice(0, 20),
     };
   }
-  return { state, offer, claim, confirm, cancelPair, setPeer, removePeer, visit, decide, askCatalog, ensureLoop, stop() { stopped = true; }, _handle: handle };
+  return { myCard, adoptStar, state, offer, claim, confirm, cancelPair, setPeer, removePeer, visit, decide, askCatalog, ensureLoop, stop() { stopped = true; }, _handle: handle };
 }

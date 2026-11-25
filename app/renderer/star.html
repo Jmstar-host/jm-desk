@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>JM Desk · 聊天</title>
+<link rel="stylesheet" href="./theme.css">
+<style>
+/* 聊天页（还没填 Star 地址时）：填好地址后，主窗口在这里直接打开 Star 网页 */
+html,body{margin:0;height:100%;font:var(--font);color:var(--ink);background:var(--page)}
+.wrap{max-width:460px;margin:12vh auto 0;padding:26px 28px;border-radius:18px;background:var(--white);box-shadow:0 0 0 1px var(--line),0 6px 24px color-mix(in srgb,var(--black) 6%,transparent)}
+h2{margin:6px 0 8px;font-size:18px}
+p{margin:6px 0;color:var(--sub);line-height:1.7;font-size:12.5px}
+input{width:100%;box-sizing:border-box;margin:14px 0 4px;padding:9px 12px;border-radius:12px}
+.row{display:flex;gap:8px;margin-top:12px}
+.orb{width:44px;height:44px}
+</style></head>
+<body><div class="wrap">
+  <div class="orb"></div>
+  <h2>接入 Star 聊天</h2>
+  <p>Star 是团队自己部署的私有聊天。填上地址后，这里就是 Star 的桌面版：在这里登录一次，JM Desk 的好友就以 Star 好友为准，好友之间可以让精灵去对方桌面搬资料。</p>
+  <input id="u" placeholder="Star 地址，例如 https://域名/star/ 或局域网 http://192.168.x.x:端口/">
+  <div class="row"><button class="pri" id="ok">打开 Star</button></div>
+  <div id="m"></div>
+</div>
+<script>
+const { ipcRenderer } = require('electron');
+const $ = s => document.querySelector(s);
+$('#ok').onclick = async () => { const r = await ipcRenderer.invoke('star:set-base', $('#u').value); if (r && r.ok === false) { $('#m').innerHTML = ''; const e = document.createElement('div'); e.className = 'err'; e.textContent = r.error; $('#m').append(e); } };
+$('#u').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) $('#ok').click(); });
+</script></body></html>

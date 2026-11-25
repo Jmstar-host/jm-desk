@@ -1,4 +1,6 @@
 /* JM Desk 主进程：精灵窗口、提示层、应用面板、托盘；布局 / 形象 / 设置的读写与热加载；AI 定制。 */
+import { session } from 'electron';
+import * as star from './star.mjs';
 import { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, safeStorage, dialog, net, clipboard, powerMonitor, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -212,6 +214,86 @@ function presetRelay() { // 公司版打包时写进 builtin/integrations.json �
   return null;
 }
 const peerRelay = () => peers.relayUrl(settings().peers?.relay || '') || presetRelay();
+/* ---------- Star 私有聊天（star.mjs，1.6.0）：好友以 Star 为准；聊天页内嵌 Star 网页，主进程沿用那里登录的 Cookie ---------- */
+function presetStar() { for (const f of [path.join(HERE, '..', 'builtin', 'integrations.json'), store.file('integrations-preset.json')]) { try { const b = star.normBase(JSON.parse(fs.readFileSync(f, 'utf8')).star || ''); if (b) return b; } catch {} } return null; }
+const starBase = () => star.normBase(settings().star?.base || '') || presetStar();
+const starSession = () => session.fromPartition('persist:star');
+/* Star 是团队自己部署的服务：默认直连，不走系统代理（本机代理常常不转发内部域名，会直接断开连接）。
+ * 直连失败时自动改用系统代理再试一次；结果记在 settings.star.proxy。内嵌网页和后台调接口用同一个会话、同一个设置 */
+let starProxyP = null;
+const starProxyMode = () => settings().star?.proxy === 'system' ? 'system' : 'direct';
+const starReady = () => starProxyP || (starProxyP = starSession().setProxy({ mode: starProxyMode() }).then(() => starSession()));
+async function starFlipProxy() {
+  const s = settings(), next = starProxyMode() === 'direct' ? 'system' : 'direct'; s.star = { ...(s.star || {}), proxy: next }; store.write('settings.json', s);
+  starProxyP = starSession().setProxy({ mode: next }).then(() => starSession()); await starProxyP; return next;
+}
+/* 后台调 Star 接口：网络层失败（连不上、被断开）时换一种代理方式重试一次 */
+async function starFetch(u, o) {
+  try { return await (await starReady()).fetch(u, o); }
+  catch (e) { if (o?.signal?.aborted) throw e; await starFlipProxy(); return (await starReady()).fetch(u, o); }
+}
+let starCli = null, starInfo = { state: 'off' }, starTimer = null, starBusy = false;
+function starClient() {
+  const b = starBase(); if (!b) return null;
+  if (starCli?.base !== b) starCli = star.createStarClient({ base: b, fetchImpl: starFetch, cookie: async () => (await starSession().cookies.get({ url: b, name: 'star_sid' }))[0]?.value || null });
+  return starCli;
+}
+const starState = () => store.read('star-state.json', { cur: {}, clue: {}, sent: {} });
+/** 同步一次：未读数（主窗口「聊天」角标）；好友单聊里的配对消息（收下对方的 JM Desk、回一条自己的）；勾选的会话进线索 */
+async function starSync({ quiet = true } = {}) {
+  const c = starClient(); if (!c) { starInfo = { state: 'off' }; return starInfo; }
+  if (starBusy) return starInfo; starBusy = true;
+  try {
+    const me = await c.me(), [friends, convs] = await Promise.all([c.friends(), c.conversations()]), st = starState(), fids = new Set(friends.map(f => f.id));
+    deskSend('desk:counts', { star: convs.reduce((a, x) => a + (x.unread || 0), 0) });
+    for (const cv of convs.filter(x => x.type === 'direct' && fids.has(x.peer?.id))) {
+      if ((cv.last?.id || 0) <= (st.cur[cv.id] || 0)) continue;
+      const msgs = await c.messages(cv.id, { after: st.cur[cv.id] || undefined });
+      for (const m of msgs) {
+        const card = m.sender?.id !== me.id && star.parsePair(m.content); if (!card) continue;
+        const f = friends.find(x => x.id === m.sender.id);
+        await peerHub.adoptStar({ starId: m.sender.id, name: f?.remark || f?.nickname || m.sender.nickname, pub: card.pub, box: card.box });
+        if (!st.sent[m.sender.id] && peerRelay()) { await c.send(cv.id, star.pairText(peerHub.myCard())); st.sent[m.sender.id] = Date.now(); }
+      }
+      if (msgs.length) st.cur[cv.id] = msgs.at(-1).id;
+    }
+    const want = new Set((settings().star?.clues || []).map(Number)); let added = 0;
+    for (const cv of convs.filter(x => want.has(x.id) && (x.last?.id || 0) > (st.clue[x.id] || 0))) {
+      const msgs = await c.messages(cv.id, st.clue[cv.id] ? { after: st.clue[cv.id] } : { limit: 100 });
+      added += services.starClues(star.clueSignals(cv, msgs, { base: c.base }));
+      if (msgs.length) st.clue[cv.id] = msgs.at(-1).id;
+    }
+    store.write('star-state.json', st);
+    starInfo = { state: 'ok', me: { id: me.id, name: me.nickname || me.username }, friends: friends.length, at: Date.now(), added };
+  } catch (e) { starInfo = { state: e.code === 'login' ? 'login' : 'error', error: e.message }; if (!quiet) throw e; }
+  finally { starBusy = false; }
+  return starInfo;
+}
+function startStar() { clearInterval(starTimer); if (!starBase()) return; starTimer = setInterval(() => starSync().catch(() => {}), 60e3); setTimeout(() => starSync().catch(() => {}), 8000); }
+ipcMain.handle('star:state', safe(async () => {
+  const c = starClient(); if (!c) return { base: null, preset: !!presetStar(), state: 'off' };
+  await starSync().catch(() => {});
+  if (starInfo.state !== 'ok') return { base: c.base, preset: !!presetStar(), ...starInfo };
+  const [friends, convs] = await Promise.all([c.friends(), c.conversations()]), list = store.read('peers.json', []) || [], st = starState(), clues = new Set((settings().star?.clues || []).map(Number));
+  return { base: c.base, preset: !!presetStar(), ...starInfo, relay: !!peerRelay(),
+    friends: friends.map(f => { const p = list.find(x => x.starId === f.id); return { id: f.id, name: f.remark || f.nickname || f.username, username: f.username, peerId: p?.id || null, invited: !!st.sent[f.id] }; }),
+    convs: convs.map(x => ({ id: x.id, type: x.type, name: star.convName(x), clue: clues.has(x.id) })) };
+}));
+ipcMain.handle('star:set-base', safe(async (_e, raw) => {
+  const b = String(raw || '').trim() ? star.normBase(raw) : null; if (String(raw || '').trim() && !b) throw new Error('Star 地址不对：要 https，或者局域网 / Tailnet 的 http 地址');
+  const s = settings(); s.star = { ...(s.star || {}), base: b || '' }; store.write('settings.json', s); starCli = null;
+  if (deskViews.star) { try { deskWin.contentView.removeChildView(deskViews.star); deskViews.star.webContents.close(); } catch {} delete deskViews.star; if (deskTab === 'star') showDeskTab('star'); }
+  startStar(); return { base: starBase() };
+}));
+/* 连接 JM Desk：在和这个好友的单聊里发一条配对消息（带本机搬运用的公钥和信箱号）。对方的 JM Desk 收到后自动回一条，两边就连上了 */
+ipcMain.handle('star:pair', safe(async (_e, uid) => {
+  const c = starClient(); if (!c) throw new Error('先在「聊天」页填 Star 地址并登录'); if (!peerRelay()) throw new Error('还没有搬运用的中转地址');
+  const cv = await c.direct(Number(uid)); await c.send(cv.id, star.pairText(peerHub.myCard()));
+  const st = starState(); st.sent[Number(uid)] = Date.now(); store.write('star-state.json', st); return true;
+}));
+ipcMain.handle('star:clues', safe(async (_e, ids) => { const s = settings(); s.star = { ...(s.star || {}), clues: [...new Set((ids || []).map(Number).filter(Boolean))].slice(0, 50) }; store.write('settings.json', s); await starSync().catch(() => {}); return s.star.clues; }));
+ipcMain.handle('star:sync', safe(() => starSync({ quiet: false })));
+ipcMain.handle('star:open', () => { openDesk('star'); return true; });
 function myLook() {
   const ch = loadCharacter(), theme = themeFor(ch);
   return { theme, palette: ch.id === 'lumi' ? { ...ch.params } : { body: theme[0], body2: theme[1] } }; // 别人桌面上画不了我的模型包，就用同色的星灵
@@ -1042,7 +1124,7 @@ ipcMain.handle('upd:later', () => { const s = settings(); s.updateSnoozeUntil = 
 /* ---------- 主窗口（desk.html）：左边一列切换「助手 / 工作台 / 线索」，右边是对应的页面 ----------
  * 三个页面各是一个 WebContentsView，第一次切到时才建，之后一直留着：切走再切回来，正在进行的对话、筛选、滚动位置都还在。
  * 页面自己的 IPC 不变（e.sender 就是那个页面）。 */
-const DESK_TABS = { chat: '助手', work: '工作台', list: '线索' }, RAIL_W = 76;
+const DESK_TABS = { chat: '助手', work: '工作台', list: '线索', star: '聊天' }, RAIL_W = 76;
 let deskWin = null, deskTab = null; const deskViews = {};
 const deskSend = (ch, v) => { if (deskWin && !deskWin.isDestroyed()) deskWin.webContents.send(ch, v); };
 function layoutDesk() {
@@ -1052,6 +1134,17 @@ function layoutDesk() {
 }
 function deskView(tab) {
   if (deskViews[tab]) return deskViews[tab];
+  if (tab === 'star' && starBase()) { // 聊天页：内嵌 Star 网页，独立的会话分区（Cookie 只在这里），不给网页任何本机权限
+    const v = new WebContentsView({ webPreferences: { partition: 'persist:star', nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    v.setBackgroundColor('#ffffff'); const b = starBase(), origin = new URL(b).origin;
+    v.webContents.setWindowOpenHandler(({ url }) => { openHttp(url); return { action: 'deny' }; });
+    v.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== origin) { e.preventDefault(); openHttp(url); } });
+    v.webContents.on('did-navigate-in-page', () => setTimeout(() => starSync().catch(() => {}), 1500)); // 登录后马上同步一次
+    let flipped = false; // 打不开（连接被断开、代理拒绝等网络错误）时换一种代理方式再加载一次
+    v.webContents.on('did-fail-load', async (_e, code, _d, url, main) => { if (!main || flipped || code > -100 || code <= -400) return; flipped = true; await starFlipProxy(); v.webContents.loadURL(url || b); });
+    starReady().then(() => v.webContents.loadURL(b));
+    deskWin.contentView.addChildView(v); deskViews[tab] = v; layoutDesk(); return v;
+  }
   const v = new WebContentsView({ webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
   v.setBackgroundColor('#fbf8ff');
   const u = pathToFileURL(R(tab + '.html')); u.searchParams.set('embedded', '1');
@@ -1149,6 +1242,7 @@ app.whenReady().then(() => {
   setTimeout(pushCounts, 4000); setInterval(pushCounts, 5 * 60 * 1000);
   setTimeout(checkReminders, 8000); setInterval(checkReminders, 20000); // 员工提醒
   setTimeout(() => peerHub.ensureLoop(), 3000); // 串门收信
+  startStar(); // Star：每分钟同步一次（配对、未读、勾选会话的线索）
   setTimeout(() => checkUpdate(), 15000); setInterval(() => checkUpdate(), 6 * 3600e3); // 启动后 15 秒检查一次，之后每 6 小时
   // 电脑睡了一夜醒来、屏幕解锁时也查一次（离上次超过 30 分钟才查；等 20 秒让网络先连上），长期不退出的人也能及时收到
   const wakeCheck = () => { if (Date.now() - lastUpdCheck > 30 * 60e3) setTimeout(() => checkUpdate(), 20000); };
