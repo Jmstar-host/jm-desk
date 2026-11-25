@@ -22,9 +22,30 @@ button.sm{font-size:12px;padding:3px 10px}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--green);box-shadow:0 0 0 3px var(--ok-bg)}.dot.off{background:var(--orange);box-shadow:0 0 0 3px var(--warn-bg)}
 
 /* 左：导航 */
-#navc{width:228px;flex:none;background:rgba(255,255,255,.45)}
+#navc{width:252px;flex:none;background:rgba(255,255,255,.45)}
 #nav{flex:1;overflow:auto;padding:4px 8px 16px}
 .nh{margin:16px 8px 4px;font-size:11px;font-weight:650;color:var(--faint);letter-spacing:.04em}
+.platpick{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px 0 10px;margin-left:-8px;border-radius:10px;cursor:pointer;min-width:0}
+.platpick:hover{background:rgba(255,255,255,.85);box-shadow:0 0 0 1px var(--line)}
+.platpick b{font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic{display:inline-grid;place-items:center;width:16px;height:16px;flex:none;color:var(--sub)}.ic svg{width:16px;height:16px}
+button.icon{width:30px;height:30px;padding:0;display:grid;place-items:center;flex:none}button.icon .ic{color:var(--ink)}
+button.icon.spin .ic{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.platpop{padding:6px}
+.platpop .pp{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer}
+.platpop .pp:hover{background:var(--blue-ll)}
+.platpop .pp.on{box-shadow:inset 0 0 0 1.5px var(--pink)}
+.platpop .pp b{display:block;font-size:13px;font-weight:650}.platpop .pp small{display:block;font-size:11px;color:var(--sub);margin-top:1px}
+.platpop .pp.add{margin-top:4px;border-top:1px solid var(--line);border-radius:0 0 10px 10px;padding-top:10px}.platpop .pp.add .ic{color:var(--pink)}
+.nh.row{display:flex;align-items:center;gap:8px}
+.cnt{font-size:11px;font-weight:400;color:var(--faint);letter-spacing:0;white-space:nowrap}
+.navq{width:calc(100% - 8px);margin:4px 4px 6px;border-radius:9px;padding:5px 10px;font-size:12px}
+.tree .tg{display:flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 4px;border-radius:8px;cursor:pointer;color:var(--sub);font-size:12px;font-weight:600}
+.tree .tg:hover{background:rgba(255,255,255,.8);color:var(--ink)}
+.tree .tg .l{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree .tg .chev{transition:transform .18s}.tree .tg.open .chev{transform:rotate(90deg)}
+.ni.leaf{padding-left:26px}
+.ni.leaf .l{display:block;white-space:nowrap;-webkit-line-clamp:unset}
 .ln{margin:10px 8px 2px;font-size:11px;color:var(--faint);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .ln.first{margin-top:8px;color:var(--sub)}
 .ni{display:flex;align-items:center;gap:8px;min-height:32px;padding:4px 8px 4px 10px;box-sizing:border-box;border-radius:10px;cursor:pointer;margin:1px 0;transition:background .15s,box-shadow .15s}
@@ -89,6 +110,34 @@ button.sm{font-size:12px;padding:3px 10px}
 .tl small{display:block;color:var(--sub)}
 .hit{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}.hit span{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12.5px}
 #msg .ok,#msg .err{margin:8px 4px 0}
+/* 字段依据（AI 补全 / 人工补充） */
+.prov{font-size:11.5px;line-height:1.5;color:var(--sub);display:flex;flex-wrap:wrap;gap:4px 6px;align-items:baseline}
+.prov:empty{display:none}
+.prov b{font-weight:600;font-size:11px;padding:0 6px;border-radius:6px}
+.prov.ai b{background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet)}
+.prov.weak b{background:var(--warn-bg);color:var(--warn-fg)}
+.prov.me b{background:color-mix(in srgb,var(--black) 7%,transparent);color:var(--ink)}
+.prov.miss b{background:var(--warn-bg);color:var(--warn-fg)}
+.prov .q{color:var(--ink);cursor:pointer}.prov .q:hover{color:var(--blue-d);text-decoration:underline}
+.prov small{color:var(--faint);font-size:11px}
+button.ai{color:var(--violet);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--violet) 35%,transparent)}
+/* 证据链 */
+.chain{list-style:none;margin:0;padding:0}
+.chain .cs{display:flex;gap:12px;position:relative;padding-bottom:12px}
+.chain .cs:not(:last-child)::before{content:'';position:absolute;left:5px;top:16px;bottom:0;width:2px;background:var(--line)}
+.chain .cs.done:not(:last-child)::before{background:color-mix(in srgb,var(--pink) 40%,transparent)}
+.chain .cd{flex:none;width:12px;height:12px;border-radius:50%;margin-top:3px;box-sizing:border-box;border:2px solid var(--faint);background:var(--white);position:relative;z-index:1}
+.chain .done .cd{border-color:var(--pink);background:var(--pink)}
+.chain .now .cd{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-l)}
+.chain .warn .cd{border-color:var(--orange);background:var(--orange)}
+.chain .skip .cd{border-style:dashed}
+.chain .cb{flex:1;min-width:0}
+.chain .ct{display:flex;align-items:baseline;gap:8px}.chain .ct b{font-size:12.5px;font-weight:650}.chain .todo .ct b,.chain .skip .ct b{color:var(--faint)}
+.chain time{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.chain .cn{font-size:12px;color:var(--sub);margin-top:2px;line-height:1.55}
+.chain .warn .cn{color:var(--warn-fg)}
+.chain .ci{font-size:12px;color:var(--ink);margin-top:3px;padding-left:10px;border-left:2px solid var(--line);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chain .ci.link{cursor:pointer}.chain .ci.link:hover{color:var(--blue-d);border-left-color:var(--blue)}
 </style></head>
 <body>
 <div class="sky page-sky"><b style="left:46%;top:3%"></b><b style="left:93%;top:12%;animation-delay:1.6s"></b><b style="left:3%;top:88%;animation-delay:2.8s"></b><b style="left:70%;top:95%;animation-delay:.8s;width:6px;height:6px"></b></div>

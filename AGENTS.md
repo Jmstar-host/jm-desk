@@ -62,10 +62,13 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **需求池**：某个项目里要完成的一件完整的事，类型分 新功能 / 优化 / 问题。**每条需求必须属于一个项目**，没有合适的项目时 AI 新建一个，并标为「AI 新建，待确认」。
 - 层级（`app/main/workmodel.mjs`，数据在 `DATA/work.json`）：专项（产品线级）› 项目 › 需求 › 待办，上级只能是更高层级。每条工作挂在 产品线 › 平台产品 下；产品树从已关联的需求管理平台同步：优先读「产品项目计划」的树（`GET:/api/v1/plans/portfolio/tree`，产品线 › 平台产品 › 项目，含项目状态），平台没有这个接口或连接没授权时退回业务产品树（`GET:/api/business-product/tree`，没有项目），存到 `DATA/taxonomy.json`（`lines` / `products` / `projects`）。没同步时 AI 填写的归属标为「建议」。
 - **对齐需求管理平台（只读）**：项目、需求可以绑定平台记录（`w.mp2 = { kind: project|requirement, id, code, title }`，`workmodel.mjs` 的 `bindMp2` / `unbindMp2`），绑定后 `w.mp2Status` 显示平台实时状态：项目取产品树的状态与周期；需求取 `GET:/api/v1/plans/targets/by-requirements`（状态、所在需求计划的交付状态与排期、所属功能）。需求用 `GET:/api/requirement/list?keyword=` 搜。待办、专项只在本地。绑定只改本机，不写平台；AI 整理不改 `mp2`。工作台打开时、同步产品树后会刷新一次进度。
-- **工作台怎么排**（1.3.1，`app/renderer/work.*`，数据来自 `services.workBoard`）：左边是平台（关联状态、「拉取最新」）、「我要处理的」（待录入 = 本机整理出还没进平台的项目和需求；待推送 = 平台记录在本机改过还没推；我的待办 = 只在本机）、「平台结构」（产品线 › 平台产品）；右边按平台的录入字段展示。
+- **工作台怎么排**（1.3.1 起，1.4.0 加平台切换与可折叠的产品线；`app/renderer/work.*`，数据来自 `services.workBoard`）：左边是平台（关联状态、「拉取最新」）、「我要处理的」（待录入 = 本机整理出还没进平台的项目和需求；待推送 = 平台记录在本机改过还没推；我的待办 = 只在本机）、「平台结构」（产品线 › 平台产品）；右边按平台的录入字段展示。
   - 平台记录「保存改动」只存本机（`work:edit` 带 `{ push: false }`），界面列出改前 → 改后，人确认后才 `work:push`。
   - **推送前核对版本**（`services.pushWork`、`workmodel.mjs` 的 `mp2Pending` / `mp2Conflicts` / `mp2Rebase` / `mp2Discard`）：重新读平台上的当前值，和编辑前的基线比。别人改了我也改的字段 → 冲突，并排给人选「用我的」或「用平台的」；别人改的其他字段跟着平台走。项目另有平台的 `revision` 把关。助手经 `update_work` 补充信息仍是保存即推送。
   - 录入需求只写 `business_project_id`，不写 `scope_type` / `scope_id`；AI 的录入建议只在关联的负责范围内选平台产品。
+- **证据链**（1.4.0，`workmodel.mjs` 的 `evidenceChain` / `buildFillPrompt` / `EVIDENCE_FIELDS`，`services.aiFill` / `setEvidence`）：线索 → AI 整理 → 字段与依据 → 录入平台 → 受理与澄清 → 需求计划 → 加入项目 → 功能，工作台详情里的「证据链」卡片。
+  - 「AI 按线索补全」：AI 读这条的线索原文，按平台字段给出值和出处（线索编号 + 逐字原话）；原话会在原文里核对（`verified`）；线索里没有的列进 `missing`，界面标「需要人工补充」并写明该问谁。只给建议，人核对后才录入。
+  - 录入时字段依据存在 `w.evidence.fields`（`{ by: 'ai'|'me', sid, quote, verified }`），平台描述末尾带「字段依据」：摘录 + 出处，不带线索全文（用户的选择）。平台实现 `DESK-CONTRACT.md` §7.5 后改走证据接口。
 - **AI 的职责**：汇总时按层级抽取，并合并到已有工作（`same_as`）；「AI 整理」带着原文重新分层、挂靠、合并重复，新建项目时用 `children` 写明挂哪些需求。**人改过的字段记入 `locked`，AI 之后不再覆盖**，每次改动都记在 `history` 里。
 
 ## 4. 员工提醒（不算待办）
@@ -121,6 +124,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - **怎么派活**：对话工作台新对话的「对象」选执行项目，每一轮就是一次执行（会话的 `target = { kind: 'project', id }`）；Codex 用 `exec resume <会话号>` 接着上一次，接不上或用 DSH 时把前几轮要点写进任务。助手也可以自己转派：内置工具 `list_exec_projects`、`run_exec_project`（写操作，先确认；标了 `assistantOnly`，不经本机 MCP 暴露，免得执行者再派执行者）。
   - **回调 JM Desk**：打开了「让本机 AI 控制 JM Desk」时，Codex 这次运行会带上本机 MCP 端点（`-c mcp_servers.jm_desk.url=…`，令牌只走环境变量），可以读写工作区，写操作照旧弹窗确认。DSH 暂时没有这条通道。
   - Codex 的 `--json` 事件解析成和助手一样的步骤（命令、改文件、MCP 工具、中途说明）；用量记到 `usage.jsonl` 的 `exec-codex`。
+- **会议纪要**（1.4.0，`app/main/meeting.mjs`，界面 `renderer/meeting-ui.js`，在助手顶栏「会议纪要」）：本机 whisper.cpp 转写，免费、不限时长，和 DSH NEXT 同一做法——whisper-stream 出实时字幕，同时 ffmpeg 录一条临时音频，结束后 whisper-cli 整段转写，音频转完即删。麦克风按名字找 Mac 内置的（不用 0 号，避免连上 iPhone）。AI 整理出摘要 / 决策 / 待办 / 可能的需求（每条带原话），作为 `meeting_local` 线索进线索池，状态 `local`（只在本机，在线索里点「送到需求管理平台」才送，送时按 `feishu_meeting` 类型）。依赖：`brew install whisper-cpp ffmpeg` + 模型（`DATA/models/` 或 `~/.jmstar-meeting/models/`，界面可一键从镜像下载 ggml-small）。Windows 暂不支持。打包时 `NSMicrophoneUsageDescription` 写在 `package.json` 的 `build.mac.extendInfo`。
 - **问知识**：在助手里问。会话里有 `knowledge: true` 的接入时，系统提示自动加上检索规则（先 `business_catalog` 确认平台，再带 platform 检索，必要时异步检索）。
 - **导入**：可以从 Claude Code、Claude Desktop、Cursor、Codex 的配置里导入 MCP，密钥直接加密保存，不经过界面。
 
@@ -175,7 +179,8 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
 app/main/main.mjs          主进程：窗口、托盘、IPC、面板、升级、提醒调度、内置工具
 app/main/catalog.mjs       动作目录、默认布局、布局校验
 app/main/services.mjs      汇总、待办、需求池、线索、收集（调用 src/）
-app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定
+app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定、证据链
+app/main/meeting.mjs       会议纪要：本机 whisper 实时字幕 + 整段转写、AI 整理、进线索池
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
 app/main/agent.mjs         助手运行时：converse（多轮对话，助手页用）、run（单轮，搬运接待访客用）

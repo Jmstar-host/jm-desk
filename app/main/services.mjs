@@ -7,6 +7,7 @@ import * as mail from './mail.mjs';
 import { packSignals } from './summary.mjs';
 import * as wm from './workmodel.mjs';
 import * as digest from './digest.mjs';
+import * as meeting from './meeting.mjs';
 const { store: desk } = pipeline;
 
 /* 读 Mailspring 库（node:sqlite 是同步的）放到工作线程里，不卡住主进程和精灵动画；工作线程起不来时退回直接调用 */
@@ -95,13 +96,17 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       mp2: x.mp2 ? { kind: x.mp2.kind, id: x.mp2.id, code: x.mp2.code || null } : null, mp2Label: x.mp2Status?.label || null, missing: x.mp2Status?.found === false,
       pending: wm.mp2Pending(x).length, pushError: x.mp2Error && x.mp2Dirty?.length ? x.mp2Error : null, suggest: !x.mp2 && x.mp2Suggest ? x.mp2Suggest.action : null,
       todosOpen: (kids.get(x.id) || []).filter(c => c.level === 'todo' && c.status === 'open').length, clues: (x.sids || []).length }));
-    return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, platform: { linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null } };
+    return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, platform: { id: 'mp2', linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null },
+      /* 工作台能切换的平台。接入方式有两种：contract = 平台按 JM Desk 的接入规范（docs/DESK-CONTRACT.md）开放接口；adapter = JM Desk 按平台现有的接口适配。
+       * 现在只有需求管理平台（按它现有的接口适配）；ERP 等以后在这里登记 */
+      platforms: [{ id: 'mp2', name: '需求管理平台', linked: mp2.ready(cfg), mode: 'adapter', syncedAt: t.syncedAt || null }] };
   }
   function workTree(opts) { return { ...wm.tree(loadWork(), { ...opts, taxonomy: dataStore.read('taxonomy.json', null) }), taxonomy: dataStore.read('taxonomy.json', { lines: [], products: [] }), levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, needsReview: loadWork().filter(x => x.needsReview && x.status === 'open').length }; }
   function workItem(id) {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
     const sigs = new Map(desk.listSignals().map(s => [s.id, s]));
-    return { ...it, pending: wm.mp2Pending(it), crumbs: wm.breadcrumb(w, it), children: w.filter(c => c.parentId === id).map(c => ({ id: c.id, level: c.level, title: c.title, status: c.status })),
+    const srcs = (it.sids || []).map(s => sigs.get(s)).filter(Boolean).map(digest.summarize);
+    return { ...it, pending: wm.mp2Pending(it), chain: wm.evidenceChain(it, srcs, w), crumbs: wm.breadcrumb(w, it), children: w.filter(c => c.parentId === id).map(c => ({ id: c.id, level: c.level, title: c.title, status: c.status })),
       parents: w.filter(p => p.status === 'open' && p.id !== id && wm.LEVELS[p.level].n < wm.LEVELS[it.level].n).map(p => ({ id: p.id, level: p.level, title: p.title })),
       sources: (it.sids || []).map(s => sigs.get(s)).filter(Boolean).map(digest.summarize) };
   }
@@ -357,5 +362,43 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       line: req?.line || null, product: req?.product || null, deadline: /^\d{4}-\d{2}-\d{2}/.test(deadline || '') ? deadline : null, deadline_verified: false, priority: 'medium', status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'assistant', fields: ['created'], note: '助手新建' }] };
     w.push(it); saveWork(w); return it;
   }
-  return { addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  /* 会议纪要：AI 整理后作为一条「本机会议」线索进线索池，状态 local（只在本机，不自动送平台；在线索里点「恢复搬运」才送） */
+  async function saveMeeting(m) {
+    let minutes = null, aiError = null;
+    try { minutes = await chatJSON(meeting.buildMinutesPrompt(), `会议主题：${m.topic || '（没填）'}\n时长：${Math.round(m.durationSec / 60)} 分钟\n逐字稿：\n<<<\n${m.transcript.slice(0, 60000)}\n>>>`); }
+    catch (e) { aiError = e.message; }
+    const sig = meeting.meetingSignal(m, minutes);
+    desk.putSignal(sig); desk.updateSignal(sig.id, { status: 'local' });
+    desk.log('meeting', `会议纪要 · ${sig.title.slice(0, 28)}（${Math.round(m.durationSec / 60)} 分钟）`, { signal: sig.id });
+    return { id: sig.id, title: sig.title, minutes, aiError, chars: m.transcript.length };
+  }
+  /* 把指定的线索交给 AI 整理成工作（会议纪要「整理进工作台」用）；和「汇总新线索」同一套抽取与合并 */
+  const summarizeMeetings = () => summarize({ sources: ['meeting_local'], hours: 24 * 14, refresh: false });
+  /* AI 按线索补全平台字段：每个字段给出值和原话出处；线索里没有的列进 missing（界面上标「需要人工补充」）。只给建议，不改数据 */
+  async function aiFill(id) {
+    const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
+    const all = new Map(desk.listSignals().map(s => [s.id, s])), sigs = (it.sids || []).map(s => all.get(s)).filter(Boolean).slice(0, 8);
+    if (!sigs.length) return { fields: {}, missing: [{ field: '*', ask: '这条没有线索记录：按平台要求的字段手动补充' }], sources: [] };
+    let products = (taxonomy().products || []).map(p => p.name);
+    if (it.level === 'requirement') { try { const t = await mp2UploadTargets(); if (t.products?.length) products = t.products.map(p => p.name); } catch {} }
+    const packed = sigs.map((s, i) => `S${i + 1}｜${digest.summarize(s).sourceLabel}｜${s.title}｜${s.occurred_at || s.collectedAt || ''}\n${String(s.content || '').slice(0, 5000)}`).join('\n\n---\n\n');
+    const prompt = wm.buildFillPrompt({ level: it.level, products });
+    const data = await chatJSON(prompt, `当前这条（本机整理的草稿）：${it.title}\n${it.summary || ''}\n\n线索：\n${packed}`);
+    const fields = {};
+    for (const [k, v] of Object.entries(data?.fields || {})) {
+      if (!wm.EVIDENCE_FIELDS[k] || !v || v.value == null || v.value === '') continue;
+      const n = Number(String(v.source || '').replace(/\D/g, '')) - 1, sig = sigs[n];
+      const quote = String(v.quote || '').slice(0, 120), real = sig && quote && String(sig.content || '').replace(/\s+/g, '').includes(quote.replace(/\s+/g, '').slice(0, 12)); // 原话要真的在那条线索里
+      if (k === 'product' && !products.includes(String(v.value))) continue;
+      fields[k] = { value: String(v.value).slice(0, k === 'summary' ? 2000 : 200), sid: sig?.id || null, quote, verified: !!real, source: sig ? digest.summarize(sig).sourceLabel + ' · ' + sig.title : null };
+    }
+    return { fields, missing: (data?.missing || []).filter(m => m && m.field).slice(0, 8), sources: sigs.map(s => ({ id: s.id, title: s.title })) };
+  }
+  /* 保存字段依据（录入前由界面带上）：{ 字段: { by: 'ai'|'me', sid, quote } } */
+  function setEvidence(id, fields) {
+    const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
+    const clean = {}; for (const [k, e] of Object.entries(fields || {})) if (wm.EVIDENCE_FIELDS[k] && e) clean[k] = e.by === 'me' ? { by: 'me' } : { by: 'ai', sid: e.sid ? String(e.sid) : null, quote: String(e.quote || '').slice(0, 200), verified: !!e.verified };
+    it.evidence = { at: new Date().toISOString(), fields: clean }; saveWork(w); return it.evidence;
+  }
+  return { aiFill, setEvidence, saveMeeting, summarizeMeetings, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }

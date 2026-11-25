@@ -2,7 +2,7 @@
  * 只做本地文本解析，不调模型。 */
 const PLACEHOLDER = /^[（(][^）)]{1,8}[）)]$/;            // （图片）（表情）（文件）这类占位
 const IM_LINE = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*([^：:]{1,40})[：:]\s?(.*)$/;
-const SRC = { mail: '邮件', feishu_im: '飞书', feishu_meeting: '会议' };
+const SRC = { mail: '邮件', feishu_im: '飞书', feishu_meeting: '会议', meeting_local: '本机会议' };
 
 /* 飞书导出里的图片是一长串 key：[Image: img_v3_…]、（image）——统一显示成「图片」 */
 const tidy = t => String(t || '').replace(/\[Image:\s*[^\]]*\]/gi, '[图片]').replace(/^[（(]\s*(image|图片|img)\s*[）)]$/i, '（图片）').trim();

@@ -8,6 +8,15 @@
 
 JM Desk 不再写死任何平台的字段。平台改了表单、加了字段、调了选项，JM Desk 下次读结构时自动跟上。
 
+**接入是双向的，二选一：**
+
+| 方式 | 谁来做 | 适合 |
+|---|---|---|
+| **规范模式**（`contract`） | 平台按本文开放第 1–8 节的接口，JM Desk 读到什么就展示什么 | 自己能改的平台（需求管理平台） |
+| **适配模式**（`adapter`） | 平台不改，JM Desk 按平台现有的接口写一份适配配置：哪些对象、哪些字段、读写各用哪个接口、字段怎么对应 | 改不了的平台（ERP 等第三方） |
+
+两种方式在 JM Desk 里看起来一样：左上角切换平台，左边是平台的结构，右边按平台的字段录入。需求管理平台现在是适配模式（JM Desk 按它现有的接口适配），平台实现本规范后切到规范模式。
+
 本文只规定接口的形状。认证、授权、回执沿用 [PLATFORM-CONNECT.md](PLATFORM-CONNECT.md)：设备授权拿到连接凭据，所有调用经 `POST /api/ai-access/call`（字段一律 snake_case），平台按连接的授权和连接所有者本人的权限判断，写操作记回执。
 
 ---
@@ -206,6 +215,22 @@ AI 填完表单后先试填，把问题标在对应字段上给人看，人改�
 | 403 | `outside_responsibility_scope` + `key` | 超出负责范围 |
 | 409 | `version_conflict` + `current` | 别人改过了 |
 | 409 | `duplicated` + `existing` | 唯一字段重复 |
+
+## 7.5 证据 `POST:/api/v1/desk/evidence/{type}/{id}`（建议）
+
+人工 + AI 协同录入时，每个字段要能回答「依据是什么、谁确认的」。JM Desk 在本机记全证据链，推到平台时只带**摘录和出处**，不带聊天、邮件全文：
+
+```json
+{ "items": [
+  { "key": "description", "by": "ai", "quote": "流量预警、单卡用量、激活数、卡状态变更四个API推送json",
+    "source": { "kind": "feishu_im", "title": "IoT 对接群", "at": "2026-11-18T10:00:00Z" }, "verified": true, "confirmed_by": "me" },
+  { "key": "expected_date", "by": "human" }
+] }
+```
+
+- `by`：`ai`（AI 从线索补全）或 `human`（人工补充）；`verified`：原话在线索原文里核对上了。
+- 平台把它挂在记录的「来源、关联与变更」里，审核人在平台上就能看到依据。
+- 平台没实现这个接口之前，JM Desk 把同样的内容写进描述末尾的「字段依据」一段。
 
 ## 8. 变更（可选）`GET:/api/v1/desk/changes?since=<游标>`
 

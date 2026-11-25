@@ -85,7 +85,8 @@ export const requestIdFor = (sig, attempt = 1) => `jmdesk-${sig.id}-${attempt}`;
  * 只有 receipt.status==='succeeded' 且 2xx 且 result 带 batch_id 才算送达；其他一律抛错。 */
 export async function submit(cfg, sig, attempt = 1) {
   const body = {
-    source_type: sig.source_type, source_ref: sig.source_ref, source_url: sig.source_url, title: sig.title,
+    // 平台的线索类型只有三种：本机会议纪要（meeting_local）按「会议」送
+    source_type: sig.source_type === 'meeting_local' ? 'feishu_meeting' : sig.source_type, source_ref: sig.source_ref, source_url: sig.source_url, title: sig.title,
     occurred_at: sig.occurred_at, participants: sig.participants, content: sig.content, collector: 'jm-desk-space/0.1',
   };
   const requestId = requestIdFor(sig, attempt);

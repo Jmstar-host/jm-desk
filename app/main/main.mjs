@@ -23,6 +23,7 @@ import { parseDeepLink, isLoopback } from './deeplink.mjs';
 import * as localMcp from './localmcp.mjs';
 import { createThreads } from './threads.mjs';
 import * as executors from './executors.mjs';
+import * as meeting from './meeting.mjs';
 import { Notification } from 'electron';
 
 const require = createRequire(import.meta.url);
@@ -600,6 +601,40 @@ ipcMain.handle('work:tree', safe((_e, o) => services.workTree(o || {})));
 ipcMain.handle('work:item', safe((_e, id) => services.workItem(String(id))));
 ipcMain.handle('work:edit', safe(async (_e, id, patch, opts) => { const r = await services.editWork(String(id), patch || {}, 'me', { push: opts?.push !== false }); pushCounts(); return r; }));
 ipcMain.handle('work:board', safe(() => services.workBoard()));
+ipcMain.handle('work:ai-fill', safe(async (_e, id) => { if (!hasModel('summary')) throw new Error('还没有可用的模型（设置 › 模型）'); return services.aiFill(String(id)); }));
+ipcMain.handle('work:evidence', safe((_e, id, f) => services.setEvidence(String(id), f)));
+/* ---------- 会议纪要（meeting.mjs）：本机 whisper，结果进线索池 ---------- */
+let meet = null, meetDl = null;
+const meetSend = (ch, v) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(ch, v); for (const v2 of Object.values(deskViews)) if (!v2.webContents.isDestroyed()) v2.webContents.send(ch, v); };
+const meetObj = () => meet || (meet = meeting.createMeeting({ dataDir: store.dir, onLive: l => meetSend('meet:live', l), onState: s => meetSend('meet:state', s) }));
+ipcMain.handle('meet:status', safe(() => ({ ...meeting.status(store.dir), active: meet?.active || null, download: meetDl })));
+ipcMain.handle('meet:start', safe(async (_e, o) => { const r = await meetObj().start(o || {}); sayToSprite('🎙 正在记录会议', '在助手里点「结束」后整理纪要'); return r; }));
+ipcMain.handle('meet:cancel', safe(() => { meet?.cancel(); return true; }));
+ipcMain.handle('meet:stop', safe(async () => {
+  const m = await meetObj().stop();
+  if (!m.transcript.trim()) { meetSend('meet:state', { phase: 'idle' }); throw new Error('没有转写出文字：会议里可能没人说话，或者麦克风没有声音'); }
+  meetSend('meet:state', { phase: 'summarizing', id: m.id });
+  const r = await services.saveMeeting(m); meetSend('meet:state', { phase: 'done', id: m.id }); sayToSprite('📝 会议纪要整理好了', r.title);
+  return { ...r, durationSec: m.durationSec, transcript: m.transcript.slice(0, 20000) };
+}));
+ipcMain.handle('meet:to-work', safe(async () => { const r = await services.summarizeMeetings(); pushCounts(); return r; }));
+/* 下载转写模型到 DATA/models（约 488 MB，国内镜像）。下载中再点只返回进度 */
+ipcMain.handle('meet:download', safe(async () => {
+  if (meetDl?.running) return meetDl;
+  const dir = path.join(store.dir, 'models'); fs.mkdirSync(dir, { recursive: true }); const dst = path.join(dir, 'ggml-small.bin'), tmp = dst + '.part';
+  meetDl = { running: true, got: 0, total: 0 };
+  (async () => {
+    try {
+      const res = await net.fetch(meeting.MODEL_URL); if (!res.ok) throw new Error('下载失败：HTTP ' + res.status);
+      meetDl.total = Number(res.headers.get('content-length')) || 487601967;
+      const out = fs.createWriteStream(tmp); const rd = res.body.getReader(); let last = 0;
+      for (;;) { const { done, value } = await rd.read(); if (done) break; out.write(Buffer.from(value)); meetDl.got += value.length; if (Date.now() - last > 500) { last = Date.now(); meetSend('meet:download', meetDl); } }
+      await new Promise(r => out.end(r)); if (fs.statSync(tmp).size < 50e6) throw new Error('下载的文件不完整');
+      fs.renameSync(tmp, dst); meetDl = { running: false, done: true }; meetSend('meet:download', meetDl);
+    } catch (e) { try { fs.unlinkSync(tmp); } catch {} meetDl = { running: false, error: e.message }; meetSend('meet:download', meetDl); }
+  })();
+  return meetDl;
+}));
 ipcMain.handle('work:push', safe(async (_e, id, mode) => { const r = await services.pushWork(String(id), ['mine', 'platform'].includes(mode) ? mode : undefined); pushCounts(); return r; }));
 ipcMain.handle('work:mp2-create-project', safe((_e, id, opt) => services.createProjectWork(String(id), 'me', { productId: Number(opt?.productId) || undefined })));
 ipcMain.handle('work:mp2-apply', safe((_e, id) => services.applyMp2Suggestion(String(id), 'me')));

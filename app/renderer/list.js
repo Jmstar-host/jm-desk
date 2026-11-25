@@ -7,11 +7,11 @@ for (const k of ['a1', 'a2']) if (/^#[0-9a-f]{6}$/i.test(qs.get(k) || '')) docum
 if (process.platform !== 'darwin' || qs.get('embedded')) document.body.classList.add('win'); // 嵌在主窗口里时左边没有红绿灯，不用留空
 const call = async (ch, ...a) => { const r = await ipcRenderer.invoke(ch, ...a); if (r && r.ok === false) throw new Error(r.error); return r && 'data' in r ? r.data : r; };
 const when = t => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
-const ST = [['all', '全部'], ['queued', '待搬运'], ['submitted', '已送达'], ['failed', '失败'], ['ignored', '不搬运']];
-const SRCS = [[null, '全部来源'], ['feishu_im', '飞书'], ['mail', '邮件'], ['feishu_meeting', '会议']];
+const ST = [['all', '全部'], ['queued', '待搬运'], ['submitted', '已送达'], ['failed', '失败'], ['ignored', '不搬运'], ['local', '只在本机']];
+const SRCS = [[null, '全部来源'], ['feishu_im', '飞书'], ['mail', '邮件'], ['feishu_meeting', '飞书会议'], ['meeting_local', '本机会议']];
 const LV = { program: '专项', project: '项目', requirement: '需求', todo: '待办' };
 const derivedText = d => { const n = {}; for (const x of d || []) n[x.level] = (n[x.level] || 0) + 1; return ['requirement', 'todo', 'project'].filter(k => n[k]).map(k => `${LV[k]} ${n[k]}`).join(' · '); };
-const STATUS_TEXT = { queued: '待搬运', submitted: '已送达', failed: '失败', ignored: '不搬运' };
+const STATUS_TEXT = { queued: '待搬运', submitted: '已送达', failed: '失败', ignored: '不搬运', local: '只在本机' };
 let f = { status: 'all', source: null, q: '' }, current = qs.get('focus') || null, items = [];
 
 function chips(box, list, key, counts) {
@@ -43,6 +43,7 @@ async function show(id) {
   const act = h('div', { class: 'act' });
   if (d.status === 'queued') act.append(h('button', { onclick: () => setIgnore(id, true) }, '不搬运这条'));
   if (d.status === 'ignored') act.append(h('button', { onclick: () => setIgnore(id, false) }, '恢复搬运'));
+  if (d.status === 'local') act.append(h('button', { title: '把这份会议纪要送进需求管理平台的个人需求池', onclick: () => setIgnore(id, false) }, '送到需求管理平台'));
   if (d.url) act.append(h('button', { onclick: () => ipcRenderer.invoke('svc:open-url', d.url) }, '打开原文'));
   const body = [];
   if (d.messages) {

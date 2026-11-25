@@ -99,6 +99,40 @@ body.win #top{padding-left:18px}
 #go{flex:none;height:30px;min-width:64px}
 #tip{font-size:11.5px;color:var(--sub);margin:6px 4px 0;display:flex;gap:10px}
 #tip .sp{flex:1}
+/* 会议纪要（meeting-ui.js）：盖在对话区上面 */
+#conv{position:relative}
+#meet{position:absolute;inset:0;z-index:5;overflow:auto;padding:16px 24px 32px;background:var(--page)}
+#meet.hide{display:none}
+#meet .mtop{display:flex;margin-bottom:8px}
+#meet .mcard{max-width:520px;margin:24px auto;padding:22px 24px;border-radius:18px;background:var(--white);box-shadow:0 0 0 1px var(--line),0 6px 24px color-mix(in srgb,var(--black) 6%,transparent);text-align:left}
+#meet .mcard.wide{max-width:760px}
+#meet .mcard h3{margin:4px 0 6px;font-size:18px}
+#meet .mcard input{width:100%;margin:14px 0 4px;padding:9px 12px;border-radius:12px}
+#meet .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}#meet .row.c{justify-content:center}
+#meet button.big{padding:9px 22px;font-size:13px;display:inline-flex;align-items:center;gap:8px}
+#meet .mic{display:flex;justify-content:center;margin-bottom:4px}#meet .mic .orb{width:56px;height:56px}
+#meet .mcard:not(.wide){text-align:center}#meet .mcard:not(.wide) input{text-align:center}
+.rec{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);flex:none}
+.rec.live{animation:recp 1.2s ease-in-out infinite}@keyframes recp{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--red) 18%,transparent)}}
+#meetbtn{display:inline-flex;align-items:center;gap:6px}#meetbtn .rec{background:color-mix(in srgb,var(--black) 30%,transparent)}
+#meetbtn.on{color:var(--red);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--red) 50%,transparent)}#meetbtn.on .rec{background:var(--red);animation:recp 1.2s ease-in-out infinite}
+#meet .rechd{display:flex;align-items:center;gap:10px;margin-bottom:12px}#meet .rechd .clock{font-size:20px;font-variant-numeric:tabular-nums}
+#meet .caps{height:min(52vh,440px);overflow:auto;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--black) 3%,white);line-height:1.8;font-size:13.5px}
+#meet .caps p{margin:0 0 4px}#meet .caps p:last-child{color:var(--ink);font-weight:500}#meet .caps p:not(:last-child){color:var(--sub)}
+#meet .miss{text-align:left;margin:10px auto;padding-left:20px;line-height:1.8;font-size:12.5px;display:inline-block}
+#meet .cmd{display:flex;gap:8px;align-items:center;justify-content:center;margin:8px 0;flex-wrap:wrap}#meet .cmd code{font-size:12.5px;padding:5px 10px}
+#meet .bar{position:relative;width:100%;height:28px;border-radius:14px;background:color-mix(in srgb,var(--black) 6%,transparent);overflow:hidden}
+#meet .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--brand);border-radius:14px;transition:width .4s}
+#meet .bar span{position:relative;line-height:28px;font-size:12px;color:var(--ink)}
+#meet .steps2{text-align:left;display:inline-block;margin:12px auto;padding-left:20px;line-height:2;color:var(--faint)}
+#meet .steps2 li.ok{color:var(--ok-fg)}#meet .steps2 li.now{color:var(--ink);font-weight:650}
+#meet .sum{font-size:13.5px;line-height:1.8;margin:0 0 12px}
+#meet section h4{margin:16px 0 6px;font-size:13px}#meet section ul{margin:0;padding-left:20px;line-height:1.8;font-size:13px}
+#meet section em{font-style:normal;font-size:11px;margin-left:6px;padding:0 6px;border-radius:8px;background:color-mix(in srgb,var(--black) 6%,transparent);color:var(--sub)}
+#meet section q{display:block;font-size:12px;color:var(--sub);quotes:'「' '」'}
+#meet details{margin-top:14px}#meet details summary{cursor:pointer;font-size:12.5px;color:var(--blue-d)}#meet details pre{max-height:320px}
+button.sm{font-size:12px;padding:3px 10px}
+button.pri .rec{background:var(--white)}
 </style></head>
 <body>
 <div class="sky page-sky"><b style="left:46%;top:3%"></b><b style="left:93%;top:12%;animation-delay:1.6s"></b><b style="left:3%;top:88%;animation-delay:2.8s"></b><b style="left:70%;top:95%;animation-delay:.8s;width:6px;height:6px"></b></div>
@@ -113,4 +147,4 @@ body.win #top{padding-left:18px}
       <div id="tip"><span>Enter 发送 · Shift + Enter 换行</span><span class="sp"></span><span id="note">改数据前会先问你</span></div></div></div>
   </div>
 </div>
-<script src="./ui.js"></script><script src="./chat.js"></script></body></html>
+<script src="./ui.js"></script><script src="./chat.js"></script><script src="./meeting-ui.js"></script></body></html>
