@@ -94,6 +94,13 @@ pre.args{white-space:pre-wrap;word-break:break-all;font:var(--mono);line-height:
 .selpop .so.hl{background:var(--blue-ll)}
 .selpop .so.on{font-weight:650;color:var(--pink-d)}
 .selpop .so.dis{opacity:.45;cursor:default}
+/* 下拉框的搜索框（ui.js，1.4.4） */
+.selpop.sel{display:flex;flex-direction:column;overflow:hidden}
+.selpop .sq{flex:none;width:100%;box-sizing:border-box;margin:0 0 5px;padding:6px 10px;border-radius:9px;font-size:12.5px;background:var(--white);box-shadow:inset 0 0 0 1px var(--line)}
+.selpop .sq:focus{box-shadow:inset 0 0 0 1.5px var(--pink)}
+.selpop .sl{flex:1;min-height:0;overflow:auto}
+.selpop .so b{font-weight:700;color:var(--pink-d)}
+.selpop .none{padding:8px 10px;font-size:12px;color:var(--faint)}
 /* 日期（ui.js）：不用系统的日期选择器，换成小日历；时间输入框也去掉系统的弹出按钮，直接输入 */
 input[type=date],input[type=time]{cursor:pointer;font-variant-numeric:tabular-nums}
 input[type=date]::-webkit-calendar-picker-indicator,input[type=time]::-webkit-calendar-picker-indicator{display:none}
