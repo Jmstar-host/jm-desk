@@ -10,7 +10,7 @@ import { createPeerHub } from '../app/main/peerhub.mjs';
 
 test('Star 地址：https 都行；http 只认本机、局域网和 Tailnet；结尾补 /', () => {
   assert.equal(S.normBase('https://chat.example.com/star'), 'https://chat.example.com/star/');
-  assert.equal(S.normBase('http://192.168.50.10:13401'), 'http://192.168.50.10:13401/');
+  assert.equal(S.normBase('http://192.168.1.10:13401'), 'http://192.168.1.10:13401/');
   assert.equal(S.normBase('http://100.82.1.2:8080/star/'), 'http://100.82.1.2:8080/star/');
   assert.equal(S.normBase('http://evil.example.com/'), null);
   assert.equal(S.normBase('ftp://x/'), null);
