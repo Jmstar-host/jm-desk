@@ -46,7 +46,10 @@ export const MOVED = {
 export function migrateLayout(l) {
   if (!l || !Array.isArray(l.groups)) return { layout: l, changed: false };
   let changed = false; const used = new Set();
-  const groups = l.groups.map(g => {
+  // 1.3.1 换了色板：还是旧默认颜色的分组换成新默认颜色（用户自己挑过的颜色只做就近对齐，见 validateLayout）
+  const OLD = { '#f472b6/#c084fc': 'play', '#8b7cf6/#60a5fa': 'work', '#38bdf8/#818cf8': 'mail', '#2dd4bf/#a78bfa': 'more' };
+  const recolor = g => { const k = OLD[(g.color || []).join('/').toLowerCase()], d = k && DEFAULT_LAYOUT.groups.find(x => x.id === k); if (!d) return g; changed = true; return { ...g, color: [...d.color] }; };
+  const groups = l.groups.map(recolor).map(g => {
     const items = [];
     for (const x of Array.isArray(g.items) ? g.items : []) {
       const to = MOVED[x] ? MOVED[x][0] : x;

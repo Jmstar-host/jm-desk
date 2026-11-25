@@ -38,3 +38,8 @@ test('色板（1.3.1）：分组颜色对齐到粉 / 蓝 / 黑 + 紫绿橙红；
   const tokens = fs.readFileSync(new URL('../app/renderer/tokens.css', import.meta.url), 'utf8');
   for (const [k, c] of Object.entries(PALETTE)) assert.match(tokens, new RegExp(`--${k}:${c}`), `tokens.css 的 --${k}`);
 });
+
+test('旧默认分组颜色迁移成新色板的默认颜色', () => {
+  const { layout, changed } = migrateLayout({ version: 1, groups: [{ id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], items: ['app.work', 'app.settings'] }, { id: 'x', label: '自定', icon: 'doc', color: ['#2dd4bf', '#a78bfa'], items: ['app.agent'] }] });
+  assert.equal(changed, true); assert.deepEqual(layout.groups[0].color, ['#ec4899', '#3b82f6']); assert.deepEqual(layout.groups[1].color, ['#17141f', '#3b82f6']);
+});
