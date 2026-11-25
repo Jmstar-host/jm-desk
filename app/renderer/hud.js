@@ -167,7 +167,7 @@ sayEl.addEventListener('click', () => { const a = sayAction; hideSay(true); tell
 
 /* 右键卡片：在鼠标位置弹出，优先右下，放不下就翻到左 / 上 */
 function openCtx(m) {
-  if (m.theme) { document.documentElement.style.setProperty('--a1', m.theme[0]); document.documentElement.style.setProperty('--a2', m.theme[1]); }
+  // 界面颜色统一用 tokens.css（1.3.1），不再跟着形象变
   const hd = document.createElement('div'); hd.className = 'hd';
   hd.innerHTML = '<div class="morb"></div><div><b></b><small></small></div>';
   hd.querySelector('b').textContent = m.name || 'JM Desk'; hd.querySelector('small').textContent = m.sub || '';
@@ -175,7 +175,7 @@ function openCtx(m) {
   for (const it of m.items) {
     if (it.sep) { const s = document.createElement('div'); s.className = 'sep'; ctxEl.append(s); continue; }
     const el = document.createElement('div'); el.className = 'ci' + (it.danger ? ' danger' : '');
-    el.innerHTML = icon(it.icon, it.danger ? '#fb7185' : getComputedStyle(document.documentElement).getPropertyValue('--a1').trim() || '#f472b6', it.danger ? '#e11d48' : getComputedStyle(document.documentElement).getPropertyValue('--a2').trim() || '#a78bfa') + '<span></span>' + (it.toggle != null ? `<i class="tg${it.toggle ? ' on' : ''}"></i>` : '');
+    el.innerHTML = icon(it.icon, ...(it.danger ? ['#e11d48', '#e11d48'] : ['#ec4899', '#3b82f6'])) /* tokens.css 的 --red / --pink / --blue（innerHTML 里的 SVG 渐变要写具体色值） */ + '<span></span>' + (it.toggle != null ? `<i class="tg${it.toggle ? ' on' : ''}"></i>` : '');
     el.querySelector('span').textContent = it.label;
     el.addEventListener('click', e => {
       e.stopPropagation();

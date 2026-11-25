@@ -28,10 +28,10 @@ export const ICONS = ['magic', 'mail', 'sliders', 'portal', 'burst', 'orbit', 'd
 export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
-    { id: 'play', label: '互动', icon: 'magic', color: ['#f472b6', '#c084fc'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
-    { id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], tip: '助手、工作台、线索、搬运', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
-    { id: 'mail', label: '邮箱', icon: 'mail', color: ['#38bdf8', '#818cf8'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
-    { id: 'more', label: '设置', icon: 'sliders', color: ['#2dd4bf', '#a78bfa'], tip: '设置、提醒、精灵位置', items: ['app.settings', 'app.reminders', 'toggle.roam', 'place.corner'] },
+    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
+    { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、搬运', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
+    { id: 'mail', label: '邮箱', icon: 'mail', color: ['#3b82f6', '#8b5cf6'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
+    { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], tip: '设置、提醒、精灵位置', items: ['app.settings', 'app.reminders', 'toggle.roam', 'place.corner'] },
   ],
 };
 
@@ -61,6 +61,17 @@ export function migrateLayout(l) {
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
+/* 色板（和 renderer/tokens.css 一致）：粉、蓝、黑、白为主，紫、绿、橙、红为辅。气泡分组只能用这里的颜色（白色做泡泡底，不做分组色）。 */
+export const PALETTE = { pink: '#ec4899', blue: '#3b82f6', black: '#17141f', violet: '#8b5cf6', green: '#16a34a', orange: '#ea580c', red: '#e11d48' };
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+/** 任意 #rrggbb → 色板里最接近的一种（布局里写了别的颜色、AI 改布局时乱选颜色，都会被对齐） */
+export function snapColor(hex) {
+  if (!HEX.test(String(hex))) return PALETTE.pink;
+  const [r, g, b] = rgb(hex.toLowerCase());
+  let best = PALETTE.pink, bd = Infinity;
+  for (const c of Object.values(PALETTE)) { const [R, G, B] = rgb(c), d = (r - R) ** 2 * 0.3 + (g - G) ** 2 * 0.59 + (b - B) ** 2 * 0.11; if (d < bd) { bd = d; best = c; } }
+  return best;
+}
 /* 校验布局：只接受目录里存在的动作；返回 { ok, layout, errors } */
 export function validateLayout(l) {
   const errors = [];
@@ -74,7 +85,7 @@ export function validateLayout(l) {
     const label = String(g.label || '').trim();
     if (!label || [...label].length > 5) errors.push(`分组「${label || id}」名称需 1–5 个字`);
     const icon = ICONS.includes(g.icon) ? g.icon : 'magic';
-    const color = Array.isArray(g.color) && g.color.length === 2 && g.color.every(c => HEX.test(c)) ? g.color : ['#8b7cf6', '#60a5fa'];
+    const color = (Array.isArray(g.color) && g.color.length === 2 && g.color.every(c => HEX.test(c)) ? g.color : [PALETTE.pink, PALETTE.blue]).map(snapColor);
     const items = (Array.isArray(g.items) ? g.items : []).filter(x => {
       if (!CATALOG[x]) { errors.push(`未知动作：${x}`); return false; }
       if (used.has(x)) { errors.push(`动作重复出现：${x}`); return false; }

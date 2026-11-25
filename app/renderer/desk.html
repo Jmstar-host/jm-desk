@@ -4,7 +4,7 @@
 <style>
 /* 主窗口左边的一列：切换助手 / 工作台 / 线索；底下是搬运和设置（在精灵旁边的小窗里打开）。右边的页面由主进程放在这一列旁边。 */
 html,body{margin:0;height:100%;font:var(--font);color:var(--ink);overflow:hidden;user-select:none;
-  background:linear-gradient(180deg,color-mix(in srgb,var(--a1) 10%,#fbf8ff),color-mix(in srgb,var(--a2) 12%,#f6f2ff))}
+  background:linear-gradient(180deg,var(--white),color-mix(in srgb,var(--black) 3%,white))}
 #rail{position:fixed;left:0;top:0;bottom:0;width:76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:56px 0 14px;box-sizing:border-box;
   border-right:1px solid var(--line);-webkit-app-region:drag}
 body.win #rail{padding-top:14px}
@@ -15,7 +15,7 @@ body.win #rail{padding-top:14px}
 .it.on{background:#fff;color:var(--ink);font-weight:650;box-shadow:var(--rim),0 3px 12px var(--glow)}
 .it.on svg{stroke:var(--a1)}
 .it .n{position:absolute;top:3px;right:6px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;font-size:10px;line-height:16px;text-align:center;color:#fff;font-weight:650;
-  background:linear-gradient(135deg,var(--a1),var(--a2))}
+  background:var(--brand)}
 .sp{flex:1}
 .sep{width:36px;height:1px;background:var(--line);margin:6px 0}
 </style></head>

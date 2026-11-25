@@ -4,12 +4,12 @@
 <style>
 /* 工作台（1.3.1）：左边先回答「我要处理什么」和「平台上有什么」，中间是所选范围的记录，右边按平台的录入字段展示。 */
 html,body{margin:0;height:100%;font:var(--font);color:var(--ink);overflow:hidden;
-  background:radial-gradient(70% 50% at 0% 0%,color-mix(in srgb,var(--a1) 13%,transparent),transparent 60%),radial-gradient(60% 50% at 100% 100%,color-mix(in srgb,var(--a2) 15%,transparent),transparent 60%),linear-gradient(170deg,#fffbff,#f8f4ff)}
+  background:var(--page)}
 .page-sky{position:fixed;inset:0;z-index:0}
 #top{position:relative;z-index:1;height:54px;display:flex;align-items:center;gap:10px;padding:0 18px 0 86px;-webkit-app-region:drag;border-bottom:1px solid var(--line);background:rgba(255,255,255,.35);backdrop-filter:blur(8px)}
 body.win #top{padding-left:18px}
 #top .orb{width:24px;height:24px}
-#top h1{margin:0;font-size:16px;white-space:nowrap;background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;color:transparent}
+#top h1{margin:0;font-size:16px;white-space:nowrap;color:var(--ink);font-weight:700}
 #top .sp{flex:1}
 #top button{-webkit-app-region:no-drag;white-space:nowrap}
 #sum{color:var(--sub);font-size:12px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -17,9 +17,9 @@ body.win #top{padding-left:18px}
 
 /* 左：平台 + 我要处理的 + 平台结构 */
 #nav{width:236px;flex:none;overflow:auto;padding:12px 10px 16px;border-right:1px solid var(--line);background:rgba(255,255,255,.32);box-sizing:border-box}
-.plat{padding:10px 12px;border-radius:14px;background:#fff;box-shadow:var(--rim),0 3px 12px color-mix(in srgb,var(--a2) 10%,transparent);margin-bottom:6px}
+.plat{padding:10px 12px;border-radius:14px;background:#fff;box-shadow:var(--rim),0 1px 2px color-mix(in srgb,var(--black) 5%,transparent),0 4px 14px color-mix(in srgb,var(--black) 5%,transparent);margin-bottom:6px}
 .plat .n{display:flex;align-items:center;gap:6px;font-weight:650}
-.plat .n i{width:7px;height:7px;border-radius:50%;background:#16a34a;flex:none}.plat .n i.off{background:#ea580c}
+.plat .n i{width:7px;height:7px;border-radius:50%;background:var(--green);flex:none}.plat .n i.off{background:var(--orange)}
 .plat small{display:block;color:var(--sub);font-size:11.5px;margin:3px 0 8px;line-height:1.5}
 .plat button{width:100%}
 .nh{margin:14px 6px 4px;font-size:11.5px;font-weight:650;color:var(--sub);letter-spacing:.02em}
@@ -29,7 +29,7 @@ body.win #top{padding-left:18px}
 .ni .l{flex:1;min-width:0}.ni .l b{display:block;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .ni .l small{display:block;color:var(--sub);font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .ni .c{flex:none;min-width:20px;padding:0 6px;height:20px;line-height:20px;border-radius:10px;text-align:center;font-size:11.5px;font-weight:650;background:color-mix(in srgb,var(--a2) 14%,transparent)}
-.ni .c.hot{color:#fff;background:linear-gradient(135deg,var(--a1),var(--a2))}
+.ni .c.hot{color:#fff;background:var(--brand)}
 .ni .c.zero{opacity:.45;font-weight:400}
 .ln{margin:8px 6px 2px;font-size:11px;color:var(--sub);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .more{margin:6px;font-size:11.5px;color:var(--sub);cursor:pointer}.more:hover{color:var(--ink)}
@@ -49,23 +49,20 @@ body.win #top{padding-left:18px}
 .r.done .ti{text-decoration:line-through;color:var(--sub)}
 .r .x{flex:none;font-size:11px;color:var(--sub);white-space:nowrap}
 .r .ck{margin:0 2px 0 0}
-.kd{flex:none;font-size:11px;font-weight:650;padding:1px 7px;border-radius:6px;color:#fff}
-.kd.project{background:#2563eb}.kd.requirement{background:#db2777}.kd.todo{background:#0d9488}.kd.program{background:#7c3aed}
-.code{flex:none;font:11px ui-monospace,Menlo,Consolas,monospace;color:#1d4ed8}
 
 /* 右：详情 */
 #detail{flex:1;min-width:0;overflow:auto;padding:16px 24px 30px}
 #detail h2{margin:0 0 6px;font-size:17px;line-height:1.4}
 .crumb{font-size:12px;color:var(--sub);margin-bottom:4px}
 .facts{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--sub);margin-bottom:10px}
-.box{margin:12px 0;padding:11px 13px;border-radius:14px;background:#fff;box-shadow:var(--rim),0 3px 12px color-mix(in srgb,var(--a2) 10%,transparent)}
+.box{margin:12px 0;padding:11px 13px;border-radius:14px;background:#fff;box-shadow:var(--rim),0 1px 2px color-mix(in srgb,var(--black) 5%,transparent),0 4px 14px color-mix(in srgb,var(--black) 5%,transparent)}
 .box h4{margin:0 0 6px;font-size:13px}
 .box.hot{box-shadow:inset 0 0 0 1.5px var(--a1),0 3px 12px var(--glow)}
-.box.warn{box-shadow:inset 0 0 0 1.5px rgba(234,88,12,.45)}
+.box.warn{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--orange) 45%,transparent)}
 .box p{margin:4px 0;font-size:12px;color:var(--sub);line-height:1.6}
 .box ul{margin:4px 0;padding-left:18px;font-size:12px;line-height:1.7}
 .f{display:grid;grid-template-columns:86px 1fr;gap:8px 10px;align-items:center;margin:10px 0}
-.f label{color:var(--sub);font-size:12px}.f label i{color:#e11d48;font-style:normal;margin-left:2px}
+.f label{color:var(--sub);font-size:12px}.f label i{color:var(--red);font-style:normal;margin-left:2px}
 .f textarea{min-height:92px;resize:vertical}
 .f input,.f select{width:100%}
 .f .ro{font-size:12.5px;color:var(--sub)}

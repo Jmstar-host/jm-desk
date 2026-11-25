@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>JM Desk 精灵</title>
+<link rel="stylesheet" href="./tokens.css">
 <style>
 html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;font:12.5px -apple-system,"PingFang SC",sans-serif;user-select:none}
 /* 精灵窗口只有舞台本身（220×220）：只移动、不改大小。边缘的星光沿圆形渐隐，不会被方框切断 */
@@ -7,11 +8,11 @@ html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden
 body.dragging #stage{cursor:grabbing}
 #stage canvas{display:block;width:100%!important;height:100%!important;
   -webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 74%,rgba(0,0,0,.6) 88%,transparent 100%)}
-#badge{position:absolute;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;background:linear-gradient(135deg,#f472b6,#c084fc);color:#fff;
-  font-weight:700;font-size:11.5px;line-height:17px;text-align:center;box-shadow:0 2px 6px rgba(236,72,153,.45);border:1.5px solid #fff;white-space:nowrap;display:none;pointer-events:none;z-index:2}
+#badge{position:absolute;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;background:var(--pink);color:var(--white);
+  font-weight:700;font-size:11.5px;line-height:17px;text-align:center;box-shadow:0 2px 6px var(--glow);border:1.5px solid var(--white);white-space:nowrap;display:none;pointer-events:none;z-index:2}
 /* 串门搬回来的星光包裹 */
 #parcel{position:absolute;left:93px;top:168px;width:34px;height:34px;border-radius:50%;opacity:0;transform:scale(.2);transition:opacity .3s,transform .45s cubic-bezier(.2,1.6,.4,1);pointer-events:none;z-index:3;
-  background:radial-gradient(circle at 38% 32%,#fff 0 18%,#fff6c9 30%,#f472b6 75%,#a78bfa);box-shadow:0 0 18px 4px rgba(244,114,182,.35),0 0 32px rgba(255,226,122,.5)}
+  background:radial-gradient(circle at 38% 32%,var(--white) 0 18%,var(--pink-l) 32%,var(--pink) 72%,var(--blue));box-shadow:0 0 18px 4px var(--glow),0 0 32px color-mix(in srgb,var(--blue) 30%,transparent)}
 #parcel::after{content:'✦';position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:15px;text-shadow:0 0 6px #fff}
 #parcel.on{opacity:1;transform:scale(1);animation:sway 1.2s ease-in-out infinite}
 @keyframes sway{0%,100%{translate:0 0}50%{translate:0 4px}}

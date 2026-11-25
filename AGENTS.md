@@ -196,12 +196,14 @@ app/renderer/engine.mjs    3D 舞台、特效、形象包加载；lumi.mjs 是�
 app/renderer/panel.*       精灵旁边的面板（设置和各功能页，apps.js 是功能页）
 app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 + 搬运、设置）；三个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载
 app/renderer/chat.*        助手（多轮对话）；work.* 是工作台（含汇总、勾待办）；list.* 是线索（含信息源与搬运记录）
-app/renderer/theme.css     共用视觉：控件样式只写在这里，主色用 --a1 / --a2
+app/renderer/tokens.css    色板（粉 / 蓝 / 黑 / 白 + 紫绿橙红），所有窗口只从这里取色
+app/renderer/theme.css     共用视觉：控件样式只写在这里，颜色全部引用 tokens.css
 src/                       信息源收集器、平台调用、命令行（node src/cli.mjs）
 test/                      node --test，全部用假服务和虚构样例
 ```
 
 界面约定：
+- **色板只有一份**：`app/renderer/tokens.css`。主色粉（品牌、主要动作）、蓝（平台、编号、选中）、黑（文字、待办）、白（底面）；辅助色紫（专项、AI）、绿（成功）、橙（提醒、待处理）、红（危险、必填）。页面和 `theme.css` 里不写具体色值，只用变量；工作层级用 `.kd.project / .requirement / .todo / .program`（蓝 / 粉 / 黑 / 紫）。界面颜色不跟着形象变（`main.mjs` 的 `themeFor` 固定返回粉 + 蓝）。气泡分组颜色由 `catalog.mjs` 的 `snapColor` 对齐到 `PALETTE`。
 - 精灵窗口只移动、不改大小；新的浮层放进提示层（hud）。
 - 右键菜单不用系统原生菜单。
 - 面板钉住的状态以主进程为准（`panel:pin` / `panel:pin-state`）。

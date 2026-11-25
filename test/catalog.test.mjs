@@ -25,3 +25,16 @@ test('去掉的入口不在目录里；每个转向目标都存在；默认布�
   for (const k of ['app.agent', 'app.work', 'app.clues', 'app.peers', 'app.settings']) assert.ok(all.includes(k), k);
   assert.equal(CATALOG['app.work'].count, 'tasks', '待办数挂在工作台上');
 });
+
+test('色板（1.3.1）：分组颜色对齐到粉 / 蓝 / 黑 + 紫绿橙红；默认布局只用色板里的颜色；和 tokens.css 一致', async () => {
+  const { PALETTE, snapColor } = await import('../app/main/catalog.mjs');
+  const fs = await import('node:fs');
+  assert.equal(snapColor('#f472b6'), PALETTE.pink); assert.equal(snapColor('#60a5fa'), PALETTE.blue); assert.equal(snapColor('#2e1f40'), PALETTE.black);
+  assert.equal(snapColor('#a78bfa'), PALETTE.violet); assert.equal(snapColor('not-a-color'), PALETTE.pink);
+  const all = Object.values(PALETTE);
+  for (const g of DEFAULT_LAYOUT.groups) for (const c of g.color) assert.ok(all.includes(c), `${g.id} ${c}`);
+  const v = validateLayout({ version: 1, groups: [{ id: 'x', label: '设置', icon: 'magic', color: ['#2dd4bf', '#ff00aa'], items: ['app.settings'] }] });
+  assert.ok(v.layout.groups[0].color.every(c => all.includes(c)), '旧颜色、AI 乱选的颜色都被对齐');
+  const tokens = fs.readFileSync(new URL('../app/renderer/tokens.css', import.meta.url), 'utf8');
+  for (const [k, c] of Object.entries(PALETTE)) assert.match(tokens, new RegExp(`--${k}:${c}`), `tokens.css 的 --${k}`);
+});

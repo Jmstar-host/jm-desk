@@ -11,7 +11,7 @@ const W = 300, SX = 150, SY = 260; // 舞台中心在窗口里的位置
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-if (V.look?.theme?.length === 2) { document.documentElement.style.setProperty('--a1', V.look.theme[0]); document.documentElement.style.setProperty('--a2', V.look.theme[1]); }
+// 1.3.1 起界面颜色统一用 tokens.css，不再跟着对方形象的主色变
 const mew = createSprite($('stage'), { camZ: 4.7 * 220 / 170, roam: 0.22, followPointer: false, palette: V.look?.palette || {} });
 mew.fps(60); window.__visitor = { mew, V };
 $('tag').textContent = `${V.name} 的精灵`;

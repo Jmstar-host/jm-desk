@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
-import { CATALOG, DEFAULT_LAYOUT, validateLayout, resolveLayout, ICONS, MOVED, migrateLayout } from './catalog.mjs';
+import { CATALOG, DEFAULT_LAYOUT, validateLayout, resolveLayout, ICONS, MOVED, migrateLayout, PALETTE } from './catalog.mjs';
 import { makeStore } from './store.mjs';
 import { createServices } from './services.mjs';
 import { mailspringApp } from './mail.mjs';
@@ -407,7 +407,7 @@ const hasModel = task => router.candidates(task).length > 0;
 /* ---------- AI 定制：只产出数据（布局 / 形象参数），经校验后由用户确认应用 ---------- */
 async function aiLayout(request) {
   const cat = Object.entries(CATALOG).map(([id, a]) => `${id}｜${a.label}｜${a.tip}`).join('\n');
-  const sys = `你在帮用户调整桌面精灵的气泡菜单。只输出一个 JSON 对象：{"layout":{"version":1,"groups":[{"id":"小写英文","label":"1-5个字","icon":"图标名","color":["#hex","#hex"],"tip":"一句说明","items":["动作id",...]}]},"summary":"一句话说明改了什么"}。
+  const sys = `你在帮用户调整桌面精灵的气泡菜单。只输出一个 JSON 对象：{"layout":{"version":1,"groups":[{"id":"小写英文","label":"1-5个字","icon":"图标名","color":["#hex","#hex"],"tip":"一句说明","items":["动作id",...]}]},"summary":"一句话说明改了什么"}。分组颜色只能从这几种里选两种：${Object.entries(PALETTE).map(([k, v]) => k + ' ' + v).join('、')}（粉、蓝为主）。
 规则：只能使用下列动作 id，每个动作最多出现一次；分组 1-6 个，每组最多 8 个；必须保留 app.settings；图标只能从 ${ICONS.join('、')} 中选。
 可用动作（id｜名称｜说明）：\n${cat}`;
   const out = await chatJSON(sys, `当前布局：${JSON.stringify(loadLayout())}\n用户要求：${request}`);
@@ -441,12 +441,8 @@ function createSprite() {
   sprite.on('closed', () => { sprite = null; });
 }
 /* 面板主色跟随当前形象：内置星灵取它的身体色；形象包可在 manifest 里写 theme: ["#a1", "#a2"] */
-function themeFor(ch = loadCharacter()) {
-  const c = CHARACTERS[ch.id] || {}, hex = /^#[0-9a-fA-F]{6}$/;
-  if (Array.isArray(c.theme) && c.theme.length === 2 && c.theme.every(x => hex.test(x))) return c.theme;
-  if (ch.id === 'lumi') return [ch.params.body || '#a78bfa', ch.params.body2 || '#60a5fa'];
-  return ['#f472b6', '#a78bfa'];
-}
+/* 界面的两种品牌色：1.3.1 起统一为粉 + 蓝（renderer/tokens.css），不再跟着形象变——换形象只换精灵本身 */
+function themeFor() { return [PALETTE.pink, PALETTE.blue]; }
 /* 面板窗口启动时就建好（隐藏），点开时只是挪位置、换内容、显示 */
 const PANEL_W = 434;
 let panelReady = false, pendingShow = null;

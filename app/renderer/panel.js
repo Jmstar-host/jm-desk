@@ -137,7 +137,7 @@ function tabLayout(body) {
   const list = h('div'); draw();
   body.append(h('div', { class: 'card' }, h('h3', {}, '展示哪些气泡'), h('div', { class: 'muted' }, '内圈是分组，外圈是功能；× 隐藏，‹ 调顺序。'), list,
     h('div', { class: 'row' },
-      h('button', { onclick: () => { L.groups.push({ id: 'g' + Date.now().toString(36).slice(-5), label: '新分组', icon: 'magic', color: ['#8b7cf6', '#60a5fa'], tip: '', items: [] }); draw(); } }, '＋ 分组'),
+      h('button', { onclick: () => { L.groups.push({ id: 'g' + Date.now().toString(36).slice(-5), label: '新分组', icon: 'magic', color: ['#ec4899', '#3b82f6'], tip: '', items: [] }); draw(); } }, '＋ 分组'),
       h('span', { style: 'flex:1' }),
       h('button', { class: 'ghost', onclick: async () => { await ipcRenderer.invoke('panel:reset-layout'); render(); } }, '恢复默认'),
       h('button', { class: 'pri', onclick: async () => { const v = await ipcRenderer.invoke('panel:save-layout', L); msg.replaceChildren(v.ok ? h('div', { class: 'ok' }, '已保存，点精灵就能看到。') : h('div', { class: 'err' }, v.errors.join('\n'))); } }, '保存')), msg));
