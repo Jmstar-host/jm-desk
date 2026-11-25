@@ -13,7 +13,7 @@ test('旧布局迁移：待办 / 需求池 / 汇总并进工作台，问知识�
   assert.equal(changed, true);
   assert.deepEqual(layout.groups.map(g => [g.id, g.items]), [
     ['work', ['app.work', 'app.agent', 'app.clues', 'app.peers']], ['load', []], ['mail', ['mail.open']], ['more', ['app.reminders', 'app.settings']]]); // 1.7.0 第一层加了「占用」
-  assert.equal(layout.groups[0].tip, '助手、工作台、线索、搬运');
+  assert.equal(layout.groups[0].tip, '助手、工作台、线索、串门');
   assert.equal(validateLayout(layout).ok, true);
   assert.equal(migrateLayout(layout).changed, false, '迁移过的不再动');
 });

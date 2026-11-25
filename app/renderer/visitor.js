@@ -63,10 +63,10 @@ async function arrive() {
   document.body.classList.add('landed'); mew.trick('wave');
   ipcRenderer.send('visitor:landed', V.id);
   await sleep(500);
-  // 让主人一眼看清：谁来的、想搬哪一块、具体要什么
-  const want = V.scope ? `想从「${V.scope}」里搬：${V.ask}` : `想找：${V.ask}`;
-  if (V.trusted) say(`${V.name} 的精灵来搬资料`, `${want}（已信任，直接帮它找）`);
-  else say(`${V.name} 的精灵来搬资料`, want, [['帮它找', 'pri', () => decide(true)], ['请它回去', '', () => decide(false)]]);
+  // 让主人一眼看清：谁来的、想找哪一块、具体要什么
+  const want = V.scope ? `想从「${V.scope}」里找：${V.ask}` : `想找：${V.ask}`;
+  if (V.trusted) say(`${V.name} 的精灵来串门`, `${want}（已信任，直接帮它找）`);
+  else say(`${V.name} 的精灵来串门`, want, [['帮它找', 'pri', () => decide(true)], ['请它回去', '', () => decide(false)]]);
 }
 function decide(ok) { $('btns').replaceChildren(); ipcRenderer.send('visitor:decide', V.id, ok); }
 
@@ -79,7 +79,7 @@ async function search() {
 let leaving = false;
 async function leave(carry) {
   leaving = true; $('seek').classList.remove('on'); mew.cast(false);
-  if (carry) { say('找到啦，搬回去～', '谢谢主人'); $('parcel').classList.add('on'); mew.trick('loop'); }
+  if (carry) { say('找到啦，带回去～', '谢谢主人'); $('parcel').classList.add('on'); mew.trick('loop'); }
   else { say('那我先回去啦', '下次再来玩'); mew.trick('wave'); }
   await sleep(1500); unsay(); document.body.classList.remove('landed');
   mew.trick('dash'); await fly(entry.x, entry.y - 60, REDUCED ? 300 : 1300);

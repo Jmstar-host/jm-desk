@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>JM Desk</title>
 <link rel="stylesheet" href="./theme.css">
 <style>
-/* 主窗口左边的一列：切换助手 / 工作台 / 线索 / 聊天（Star）；底下是搬运和设置（在精灵旁边的小窗里打开）。右边的页面由主进程放在这一列旁边。 */
+/* 主窗口左边的一列：切换助手 / 工作台 / 线索 / 聊天（Star）；底下是串门和设置（在精灵旁边的小窗里打开）。右边的页面由主进程放在这一列旁边。 */
 html,body{margin:0;height:100%;font:var(--font);color:var(--ink);overflow:hidden;user-select:none;
   background:linear-gradient(180deg,var(--white),color-mix(in srgb,var(--black) 3%,white))}
 #rail{position:fixed;left:0;top:0;bottom:0;width:76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:56px 0 14px;box-sizing:border-box;
@@ -35,7 +35,7 @@ const ICON = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4 18 18M6 18l1.6-1.6M16.4 7.6 18 6"/>',
 };
 const TABS = [['chat', '助手'], ['work', '工作台'], ['list', '线索'], ['star', '聊天']];
-const PANELS = [['peers', '搬运', 'app.peers'], ['settings', '设置', 'app.settings']];
+const PANELS = [['peers', '串门', 'app.peers'], ['settings', '设置', 'app.settings']];
 let cur = null, counts = {};
 function draw() {
   const it = (icon, label, on, onclick, n) => {

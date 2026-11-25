@@ -1,6 +1,6 @@
 /* Star 私有聊天（1.6.0）。JM Desk 的好友以 Star 为准：
  *   - 聊天页内嵌 Star 网页（独立的会话分区 persist:star）；用户在里面登录一次，主进程沿用这次登录的 Cookie（star_sid）调 Star 的接口；
- *   - 好友列表读 Star；两边的 JM Desk 通过一条 Star 消息交换搬运用的公钥和信箱号（jmdesk-pair），之后搬运照旧走 JM Desk 的端到端加密中转，Star 服务器看不到内容；
+ *   - 好友列表读 Star；两边的 JM Desk 通过一条 Star 消息交换串门用的公钥和信箱号（jmdesk-pair），之后串门照旧走 JM Desk 的端到端加密中转，Star 服务器看不到内容；
  *   - 用户勾选的会话作为线索（star_im）收进线索池，按会话、按天聚合。
  * 这里只放和 Electron 无关的部分（接口客户端、配对消息、线索聚合），方便测试。 */
 import crypto from 'node:crypto';
@@ -36,12 +36,12 @@ export function createStarClient({ base, cookie, fetchImpl = fetch }) {
   };
 }
 
-/* ---------- 配对：两边 JM Desk 经 Star 消息交换搬运用的公钥和信箱号 ---------- */
+/* ---------- 配对：两边 JM Desk 经 Star 消息交换串门用的公钥和信箱号 ---------- */
 const B64 = /^[A-Za-z0-9+/=_-]{20,600}$/, HEX = /^[0-9a-f]{64}$/;
 export const PAIR_TAG = 'jmdesk-pair:v1:';
 export function pairText({ pub, box, name }) {
   const payload = Buffer.from(JSON.stringify({ pub, box, name: String(name || '').slice(0, 30) })).toString('base64url');
-  return `🔗 JM Desk 已连接（自动发送，用于搬运资料时端到端加密，可以忽略）\n${PAIR_TAG}${payload}`;
+  return `🔗 JM Desk 已连接（自动发送，用于串门时端到端加密，可以忽略）\n${PAIR_TAG}${payload}`;
 }
 export function parsePair(text) {
   const m = String(text || '').match(/jmdesk-pair:v1:([A-Za-z0-9_-]{20,2000})/); if (!m) return null;

@@ -1,4 +1,4 @@
-/* 精灵旁边打开的应用页：搬运、提醒、升级、邮箱统计。汇总 / 待办 / 需求池并进了工作台，问知识并进了助手，收集并进了线索（1.3.0）。
+/* 精灵旁边打开的应用页：串门、提醒、升级、邮箱统计。汇总 / 待办 / 需求池并进了工作台，问知识并进了助手，收集并进了线索（1.3.0）。
  * 在 panel.js 之前加载；h / $ / ipcRenderer 由 panel.js 定义，只在函数里使用。 */
 const SRC = { mail: '邮件', feishu_im: '飞书', feishu_meeting: '会议' };
 const when = t => { if (!t) return ''; const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); };
@@ -113,8 +113,8 @@ async function pagePeers(body) {
     }
     // 出门中 / 来访中
     for (const t of S.trips) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `${t.status === 'done' ? '🏠' : '🛸'} 去 ${t.peer} 那里`), t.scope ? h('div', { class: 'muted' }, '范围：' + t.scope) : null, h('div', {}, t.ask),
-      h('div', { class: 'muted' }, t.status === 'done' ? (t.result?.status === 'ok' ? '搬回来了，结果在下面' : '空手回来：' + (t.result?.note || '')) : ST[t.status] || t.status)));
-    for (const g of S.guests) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `👋 ${g.peer} 的精灵来了`), h('div', { class: 'muted' }, g.scope ? '想搬的范围：' + g.scope : '没有指定范围（对方是旧版本），会在你开放的全部范围里找'), h('div', {}, g.ask),
+      h('div', { class: 'muted' }, t.status === 'done' ? (t.result?.status === 'ok' ? '带回来了，结果在下面' : '空手回来：' + (t.result?.note || '')) : ST[t.status] || t.status)));
+    for (const g of S.guests) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `👋 ${g.peer} 的精灵来了`), h('div', { class: 'muted' }, g.scope ? '想找的范围：' + g.scope : '没有指定范围（对方是旧版本），会在你开放的全部范围里找'), h('div', {}, g.ask),
       g.status === 'arrived' ? h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:decide', g.id, true) }, '帮它找'), h('button', { onclick: () => inv('peer:decide', g.id, false) }, '请它回去')) : h('div', { class: 'muted' }, '正在帮它找…')));
     // 去搬运：总是在最前面；还没好友时也显示，引导先加好友
     {
@@ -129,19 +129,19 @@ async function pagePeers(body) {
       const KIND = { knowledge: '知识库', requirements: '需求池', todos: '待办' };
       const secSel = h('select', { style: 'flex:1;min-width:0', onchange: e => { pickSec = e.target.value; pickItem = ''; draw(); } }, ...secs.map(x => h('option', { value: x.id, selected: x.id === pickSec }, `${KIND[x.kind] === x.name ? '' : (KIND[x.kind] || '') + ' · '}${x.name}`)));
       const itemSel = sec?.items.length ? h('select', { style: 'flex:1;min-width:0', onchange: e => { pickItem = e.target.value; } }, h('option', { value: '' }, sec.kind === 'knowledge' ? '整个知识库' : '全部'), ...sec.items.map(i => h('option', { value: i.id, selected: i.id === pickItem }, i.label + (i.note ? `（${i.note}）` : '')))) : null;
-      const ta = h('textarea', { rows: 3, placeholder: sec ? `要从「${sec.name}」里搬什么内容？写具体些，例如：绑定失败的排查步骤` : '要搬什么？例如：eIM 绑定失败的排查资料', oninput: e => { askDraft = e.target.value; } }); ta.value = askDraft;
+      const ta = h('textarea', { rows: 3, placeholder: sec ? `要从「${sec.name}」里找什么？写具体些，例如：绑定失败的排查步骤` : '要找什么？例如：eIM 绑定失败的排查资料', oninput: e => { askDraft = e.target.value; } }); ta.value = askDraft;
       const busy = S.trips.some(t => t.status !== 'done');
-      const scopeRows = !peer ? [] : secs.length ? [h('div', { class: 'row' }, h('span', { class: 'muted' }, '搬哪块'), secSel), itemSel ? h('div', { class: 'row' }, h('span', { class: 'muted' }, '范围'), itemSel) : null]
-        : peer.catalog ? [h('div', { class: 'muted' }, '对方现在没有开放可以搬的内容。'), h('div', { class: 'row' }, h('button', { onclick: () => inv('peer:catalog', peer.id, true).catch(() => {}) }, '刷新目录'))]
+      const scopeRows = !peer ? [] : secs.length ? [h('div', { class: 'row' }, h('span', { class: 'muted' }, '找哪块'), secSel), itemSel ? h('div', { class: 'row' }, h('span', { class: 'muted' }, '范围'), itemSel) : null]
+        : peer.catalog ? [h('div', { class: 'muted' }, '对方现在没有开放可以找的内容。'), h('div', { class: 'row' }, h('button', { onclick: () => inv('peer:catalog', peer.id, true).catch(() => {}) }, '刷新目录'))]
         : [h('div', { class: 'muted' }, '还没拿到对方的目录：对方不在线，或者版本低于 1.2.0。拿到之前只能让对方在全部开放范围里找，比较慢。'), h('div', { class: 'row' }, h('button', { onclick: async () => { try { await inv('peer:catalog', peer.id, true); goMsg.replaceChildren(h('div', { class: 'muted' }, '已经去要了，对方在线的话几秒钟就到')); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, '再要一次目录'))];
-      cards.unshift(h('div', { class: 'card go' }, h('h3', {}, '去好友那里搬'),
+      cards.unshift(h('div', { class: 'card go' }, h('h3', {}, '去好友那里串门'),
         h('div', { class: 'row' }, h('span', { class: 'muted' }, '找谁'), sel), ...scopeRows, ta,
         h('div', { class: 'row' }, h('button', { class: 'pri', disabled: !has || busy || (peer?.catalog && !secs.length), onclick: async () => { try { await inv('peer:visit', pick, ta.value, sec ? { section: sec.id, item: pickItem || null } : null); askDraft = ''; goMsg.replaceChildren(); draw(); } catch (e) { goMsg.replaceChildren(errBox(e)); } } }, busy ? '精灵出门中…' : '出发'),
           h('span', { class: 'muted' }, !has ? '先在下面和 Star 好友连上 JM Desk' : sec ? '精灵飞到对方桌面，对方同意后只在这个范围里找' : '好友同意后，精灵在他开放的范围里找')), goMsg));
     }
-    // 好友：以 Star 为准（1.6.0）。连上 JM Desk 的 Star 好友才能互相搬运；分级、来访方式、开放的文件夹按每个好友设
+    // 好友：以 Star 为准（1.6.0）。连上 JM Desk 的 Star 好友才能互相串门；分级、来访方式、开放的文件夹按每个好友设
     const peerCtl = p => [
-      h('select', { style: 'margin-left:auto', title: '好友等级：普通好友只能搬你开放的需求池、待办；知识好友还能问你接入的知识库', onchange: e => inv('peer:set', p.id, { tier: e.target.value }) },
+      h('select', { style: 'margin-left:auto', title: '好友等级：普通好友只能找你开放的需求池、待办；知识好友还能问你接入的知识库', onchange: e => inv('peer:set', p.id, { tier: e.target.value }) },
         ...Object.entries(S.tiers || {}).map(([k, n]) => h('option', { value: k, selected: (p.tier === 'basic' ? 'basic' : 'knowledge') === k }, n))),
       h('select', { title: '它的精灵来串门时', onchange: e => inv('peer:set', p.id, { trust: e.target.value }) }, h('option', { value: 'ask', selected: p.trust !== 'trust' }, '每次问我'), h('option', { value: 'trust', selected: p.trust === 'trust' }, '完全信任')),
       h('div', { class: 'folders' }, h('span', { class: 'muted' }, '开放的文件夹'),
@@ -153,13 +153,13 @@ async function pagePeers(body) {
     if (!T.base) fr.append(h('div', { class: 'muted' }, '好友以 Star 为准：先在主窗口「聊天」页填 Star 地址并登录。'), h('div', { class: 'row' }, openChat));
     else if (T.state !== 'ok') fr.append(h('div', { class: 'muted' }, T.state === 'login' ? '在主窗口「聊天」页登录 Star 后，这里显示你的 Star 好友。' : 'Star 暂时连不上：' + (T.error || '')), h('div', { class: 'row' }, openChat));
     else if (!T.friends.length) fr.append(h('div', { class: 'muted' }, '你在 Star 里还没有好友：在「聊天」页加好友后，这里会自动出现。'));
-    else fr.append(h('div', { class: 'muted' }, '和好友连上 JM Desk 之后，才能让精灵去对方桌面搬资料；搬运内容端到端加密，Star 服务器看不到。'),
+    else fr.append(h('div', { class: 'muted' }, '和好友连上 JM Desk 之后，才能让精灵去对方桌面找资料；串门带回的内容端到端加密，Star 服务器看不到。'),
       ...T.friends.map(f => { const p = S.peers.find(x => x.id === f.peerId);
         return h('div', { class: 'row peer' }, h('b', {}, f.name), p ? h('span', { class: 'tag ok', title: '暗号：' + (p.fp || []).join(' · ') }, '已连上 JM Desk') : h('span', { class: 'muted' }, f.invited ? '已发出连接，等对方的 JM Desk 回应' : '还没连上 JM Desk'),
           ...(p ? peerCtl(p) : [h('button', { class: 'sm', style: 'margin-left:auto', title: '在 Star 单聊里发一条连接消息；对方也装了 JM Desk 并登录 Star 时会自动连上', onclick: async ev => { try { await inv('star:pair', f.id); draw(); } catch (err) { ev.target.after(h('span', { class: 'err' }, err.message)); } } }, f.invited ? '再发一次' : '连接 JM Desk')]));
       }));
     cards.push(fr);
-    // 以前用好友码加的好友（1.6.0 之前）：照常能搬运，新的好友都走 Star
+    // 以前用好友码加的好友（1.6.0 之前）：照常能串门，新的好友都走 Star
     const old = S.peers.filter(p => !p.starId);
     if (old.length) cards.push(h('div', { class: 'card' }, h('h3', {}, `以前用好友码加的好友 ${old.length}`),
       ...old.map(p => h('div', { class: 'row peer' }, h('b', {}, p.name), h('span', { class: 'muted', title: '加好友时核对过的暗号' }, (p.fp || []).join(' · ')), ...peerCtl(p),
@@ -168,21 +168,21 @@ async function pagePeers(body) {
     // 开放给好友的范围
     const share = { ...S.share };
     const mine = h('div');
-    cards.push(h('div', { class: 'card' }, h('h3', {}, '开放给好友'), h('div', { class: 'muted' }, '好友的精灵只能在这里找；邮件和聊天原文永远不开放。勾选的内容会自动生成一份目录（只有名字）发给好友，好友搬运前从里面选范围。'),
+    cards.push(h('div', { class: 'card' }, h('h3', {}, '开放给好友'), h('div', { class: 'muted' }, '好友的精灵只能在这里找；邮件和聊天原文永远不开放。勾选的内容会自动生成一份目录（只有名字）发给好友，好友串门前从里面选范围。'),
       ...Object.entries(S.scopes).map(([k, label]) => h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: !!share[k], onchange: e => { share[k] = e.target.checked; inv('peer:config', { share }); } }), label)),
       h('div', { class: 'row' }, h('button', { onclick: async () => { try { const c = await inv('peer:my-catalog'); mine.replaceChildren(...(c.length ? c.map(x => h('div', { class: 'muted' }, `${x.name}：${x.items.length ? x.items.slice(0, 12).map(i => i.label).join('、') + (x.items.length > 12 ? ` 等 ${x.items.length} 项` : '') : '整体作为一个范围'}`)) : [h('div', { class: 'muted' }, '现在没有开放任何内容')])); } catch (e) { mine.replaceChildren(errBox(e)); } } }, '看看好友能看到的目录')), mine,
       h('div', { class: 'row' }, h('span', { class: 'muted' }, '我的名字'), h('input', { value: S.me.name, style: 'flex:1', onchange: e => inv('peer:config', { name: e.target.value }) }))));
     // 记录
     if (S.history.length) cards.push(h('div', { class: 'card' }, h('h3', {}, '串门记录'),
       ...S.history.slice(0, 10).map(x => h('div', { class: 'li' }, h('div', { class: 'lt' }, h('span', { class: 'tag' + (x.status === 'ok' ? ' ok' : ' warn') }, x.dir === 'out' ? `去 ${x.peer}` : `${x.peer} 来访`), h('span', { class: 'st', title: x.scope ? '范围：' + x.scope : '' }, (x.scope ? `【${x.scope}】` : '') + x.ask)),
-        x.answer ? h('details', { open: x === S.history[0] && x.dir === 'out' }, h('summary', { class: 'muted' }, x.dir === 'out' ? '搬回来的内容' : '给它的内容'), h('div', { class: 'ans' }, x.answer)) : h('div', { class: 'muted' }, x.note || ({ denied: '没让它找', empty: '没找到', timeout: '对方不在' }[x.status] || ''))))));
+        x.answer ? h('details', { open: x === S.history[0] && x.dir === 'out' }, h('summary', { class: 'muted' }, x.dir === 'out' ? '带回来的内容' : '给它的内容'), h('div', { class: 'ans' }, x.answer)) : h('div', { class: 'muted' }, x.note || ({ denied: '没让它找', empty: '没找到', timeout: '对方不在' }[x.status] || ''))))));
     box.replaceChildren(...cards);
   }
   peerRedraw = draw; await draw();
 }
 
 const APPS = {
-  'app.peers': ['搬运', pagePeers],
+  'app.peers': ['串门', pagePeers],
   'app.reminders': ['提醒', pageReminders],
   'app.update': ['升级', pageUpdate],
   'mail.stats': ['邮箱未读', pageMailStats],

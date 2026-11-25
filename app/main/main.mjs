@@ -287,9 +287,9 @@ ipcMain.handle('star:set-base', safe(async (_e, raw) => {
   if (deskViews.star) { try { deskWin.contentView.removeChildView(deskViews.star); deskViews.star.webContents.close(); } catch {} delete deskViews.star; if (deskTab === 'star') showDeskTab('star'); }
   startStar(); return { base: starBase() };
 }));
-/* 连接 JM Desk：在和这个好友的单聊里发一条配对消息（带本机搬运用的公钥和信箱号）。对方的 JM Desk 收到后自动回一条，两边就连上了 */
+/* 连接 JM Desk：在和这个好友的单聊里发一条配对消息（带本机串门用的公钥和信箱号）。对方的 JM Desk 收到后自动回一条，两边就连上了 */
 ipcMain.handle('star:pair', safe(async (_e, uid) => {
-  const c = starClient(); if (!c) throw new Error('先在「聊天」页填 Star 地址并登录'); if (!peerRelay()) throw new Error('还没有搬运用的中转地址');
+  const c = starClient(); if (!c) throw new Error('先在「聊天」页填 Star 地址并登录'); if (!peerRelay()) throw new Error('还没有串门用的中转地址');
   const cv = await c.direct(Number(uid)); await c.send(cv.id, star.pairText(peerHub.myCard()));
   const st = starState(); st.sent[Number(uid)] = Date.now(); store.write('star-state.json', st); return true;
 }));
@@ -355,7 +355,7 @@ const peerHub = createPeerHub({
       if (!tools0.length) throw new Error('主人没有开放这个知识库');
       if (!hasModel('assistant')) throw new Error('主人这边还没配置模型');
       const r0 = await agent.run({ question: ask, tools: tools0, maxSteps: 4, confirm: async () => false,
-        hint: `这是好友「${peer}」的精灵来搬资料，范围已经定好：知识库「${hit.section.name}」${hit.item ? `的平台「${hit.item.id}」。检索时参数 platform 填 "${hit.item.id}"` : ''}。直接用 knowledge_search（或 knowledge_ask）检索，不要先查目录，最多检索两次。回答简明，写明依据的资料名称；查不到就直说查不到，不要编造，也不要给范围以外的内容。`,
+        hint: `这是好友「${peer}」的精灵来串门找资料，范围已经定好：知识库「${hit.section.name}」${hit.item ? `的平台「${hit.item.id}」。检索时参数 platform 填 "${hit.item.id}"` : ''}。直接用 knowledge_search（或 knowledge_ask）检索，不要先查目录，最多检索两次。回答简明，写明依据的资料名称；查不到就直说查不到，不要编造，也不要给范围以外的内容。`,
         chat: (sy, us) => chatJSON(sy, us, { task: 'assistant' }), call: (t, args) => hub.call(t.integ, t.tool, args) });
       if (!r0.steps.some(s => s.kind === 'call' && s.ok)) { if (r0.steps.some(s => s.kind === 'call')) throw new Error('知识库这次没连上'); return { answer: '', used: [] }; }
       return { answer: r0.answer, used: r0.used };

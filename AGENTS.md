@@ -33,7 +33,7 @@
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
 | `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的页面）、主窗口（上次看的页面）；主窗口还有「聊天」页（Star，见 §4.5） | 命令 |
-| `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
+| `app.peers` | 串门（去好友桌面找资料，代码里叫 peers；1.8.0 之前叫「搬运」） | 面板 |
 | `sys.load` | 占用（气泡中间显示 CPU、下面显示内存，越忙颜色越暖；点开活动监视器 / 任务管理器） | 命令 |
 | `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` | 邮箱 写邮件 未读 | 邮箱（调起本机邮件客户端） |
@@ -83,35 +83,37 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - 每条每天最多提醒一次。电脑睡着错过的，30 分钟内醒来会补提醒。已提醒的记录在 `DATA/reminders-state.json`。
 - 今天的安排在「提醒」面板里看。
 
-## 4.5 搬运（两台桌面互访，代码里叫 peers / 串门）
+## 4.5 串门（两台桌面互访，代码里叫 peers；1.8.0 之前界面上叫「搬运」）
+
+> 名字：好友互访一律叫「串门」，动作说「找」「带回来」。线索页的「立即搬运 / 待搬运 / 不搬运 / 搬运记录」是把线索送进需求管理平台，和串门无关，没有改名。
 
 - **代码分工**：
   - `relay/server.mjs`：中转，只转发密文。部署见 `docs/RELAY.md`。
   - `app/main/peers.mjs`：身份、加密和中转客户端，纯函数，有测试。
   - `app/main/peerhub.mjs`：加好友、收信循环、出门与接待。
   - `main.mjs`：负责接窗口、动画和本机搜索。
-  - 界面：面板「搬运」（`apps.js` 的 `pagePeers`，「工作」组）、访客窗口 `renderer/visitor.*`、精灵出门和回来的动画（`sprite.js` 的 `tripLeave` / `tripReturn`）。
+  - 界面：面板「串门」（`apps.js` 的 `pagePeers`，「工作」组）、访客窗口 `renderer/visitor.*`、精灵出门和回来的动画（`sprite.js` 的 `tripLeave` / `tripReturn`）。
 - **好友以 Star 为准**（1.6.0，`app/main/star.mjs`，主进程 `starSync` / `star:*`）：Star 是团队自己部署的私有聊天（和 DSH NEXT 里用的是同一套）。
   - 地址：`settings.star.base`，或企业预置文件顶层的 `star`（https，或局域网 / Tailnet 的 http）。开源版为空。
   - 主窗口「聊天」页内嵌 Star 网页，独立会话分区 `persist:star`（不给网页本机权限，跨域链接用系统浏览器打开）。用户在里面登录一次，主进程沿用这次登录的 Cookie（`star_sid`）调 Star 的接口（带 `x-star: 1` 头），不另存密码。
   - 访问 Star 默认直连、不走系统代理（本机代理常常不转发内部域名，会直接断开）；直连失败自动改用系统代理再试，结果记在 `settings.star.proxy`。
-  - 每分钟同步一次（`starSync`）：「聊天」页签的未读角标；好友单聊里的配对消息（`jmdesk-pair:v1:`，带本机搬运用的公钥和信箱号）——收到就 `peerHub.adoptStar` 收下对方，并自动回一条自己的；勾选的会话按天聚合成 `star_im` 线索（只在本机，同一天的新消息接在后面，跳过配对消息和系统消息），送平台时按「聊天」类型。
-  - 「搬运」页的好友列表来自 Star：已连上 JM Desk 的好友可以设等级、来访方式、开放的文件夹；没连上的点「连接 JM Desk」，在 Star 单聊里发一条配对消息。搬运内容照旧走 JM Desk 的端到端加密中转，Star 服务器看不到。经 Star 新连上的好友默认普通好友。
-  - 去掉了 6 位好友码的界面；以前用好友码加的好友单列在「以前用好友码加的好友」里，照常能搬运。
+  - 每分钟同步一次（`starSync`）：「聊天」页签的未读角标；好友单聊里的配对消息（`jmdesk-pair:v1:`，带本机串门用的公钥和信箱号）——收到就 `peerHub.adoptStar` 收下对方，并自动回一条自己的；勾选的会话按天聚合成 `star_im` 线索（只在本机，同一天的新消息接在后面，跳过配对消息和系统消息），送平台时按「聊天」类型。
+  - 「串门」页的好友列表来自 Star：已连上 JM Desk 的好友可以设等级、来访方式、开放的文件夹；没连上的点「连接 JM Desk」，在 Star 单聊里发一条配对消息。串门带回的内容照旧走 JM Desk 的端到端加密中转，Star 服务器看不到。经 Star 新连上的好友默认普通好友。
+  - 去掉了 6 位好友码的界面；以前用好友码加的好友单列在「以前用好友码加的好友」里，照常能串门。
 - **身份**：每台桌面一对 X25519 密钥，加上一把信箱钥匙（信箱号 = sha256(钥匙)），用 `safeStorage` 加密存在 `secrets.json` 的 `peer` 下。好友名单存在 `DATA/peers.json`，记录存在 `DATA/peer-trips.json`。
 - **加好友**：A 申请 6 位好友码（10 分钟内有效，只能用一次），B 认领。双方用 ECDH 算出共同密钥，界面显示 4 个暗号供人工核对，防止中转偷换公钥。消息用 AES-256-GCM 加密，并以发信方信箱号作为附加数据。
-- **可搬运目录**（1.2.0，`peers.mjs` 的 `cleanCatalog` / `findScope` / `matchRows`，`main.mjs` 的 `peerCatalog`）：搬运前先定范围，免得对方在全部开放内容里空找。
+- **可查目录**（1.2.0，`peers.mjs` 的 `cleanCatalog` / `findScope` / `matchRows`，`main.mjs` 的 `peerCatalog`）：串门前先定范围，免得对方在全部开放内容里空找。
   - 目录由程序按「开放给好友」的勾选自动生成（缓存 10 分钟），只有名字没有内容：每个标了 `knowledge` 的接入一节（条目是它的平台，来自 `business_catalog`）、需求池一节（条目是项目）、待办一节。
-  - 交换不用人操作：加好友后、收到对方的 `hello` 时、打开「搬运」页选中好友时，发 `catalog-req`；对方程序自动回 `catalog`，存在 `peers.json` 的 `catalog` 里。
+  - 交换不用人操作：加好友后、收到对方的 `hello` 时、打开「串门」页选中好友时，发 `catalog-req`；对方程序自动回 `catalog`，存在 `peers.json` 的 `catalog` 里。
   - 对方给过目录就必须带范围出门：`visit` 多一个 `scope = { section, item, label }`。B 收到后只在这一块里找：需求池、待办按词筛选，不用模型；知识库只用那一个接入、带上平台，最多 4 步。
   - 兼容：旧版本不认 `catalog-req`（不回），这时界面提示拿不到目录，仍可按老办法整体找；旧版本发来的不带 `scope` 的 `visit` 也照旧处理。
 - **访问流程**：
-  1. A 发出 `visit`（带 `scope`）。B 的桌面飞来 A 的精灵，访客窗口写明「想从哪一块搬什么」。
+  1. A 发出 `visit`（带 `scope`）。B 的桌面飞来 A 的精灵，访客窗口写明「想从哪一块找什么」。
   2. B 回 `visit-ack`，状态为 `arrived` 或 `searching`。
   3. B 回 `visit-result` 或 `visit-denied`。
   - 4 分钟内没有结果，A 的精灵空手回来。B 这边 3 分钟没人点，自动婉拒。同一时间只接待一个访客。
-- **好友分级**（1.4.2，`peers.mjs` 的 `TIERS` / `tierOf` / `shareFor`）：`basic` 普通好友只能搬需求池、待办里你开放的部分；`knowledge` 知识好友另外能问你接入的知识库。新加的好友默认普通；1.4.2 之前加的按知识好友算。目录（`peerCatalog(peer)`）和接待时的检索范围都按等级裁剪。
-- **给某个好友开放的文件夹**（1.4.2，`app/main/peerfiles.mjs`，存在 `peers.json` 该好友的 `folders`）：「搬运」页每个好友一行「＋ 文件夹」，系统选文件夹对话框选；不能是主目录、磁盘根、系统目录。好友的目录里多一节 `kind: 'files'`，只能在里面按词找（不用模型），回「文件名 + 命中的一句」，不发整份文件；只看文本类文件，跳过隐藏文件、符号链接、node_modules，数量和大小有上限。`peer:set` 不接受 `folders`，只能走 `peer:folder-add`（主进程核对路径）。
+- **好友分级**（1.4.2，`peers.mjs` 的 `TIERS` / `tierOf` / `shareFor`）：`basic` 普通好友只能找需求池、待办里你开放的部分；`knowledge` 知识好友另外能问你接入的知识库。新加的好友默认普通；1.4.2 之前加的按知识好友算。目录（`peerCatalog(peer)`）和接待时的检索范围都按等级裁剪。
+- **给某个好友开放的文件夹**（1.4.2，`app/main/peerfiles.mjs`，存在 `peers.json` 该好友的 `folders`）：「串门」页每个好友一行「＋ 文件夹」，系统选文件夹对话框选；不能是主目录、磁盘根、系统目录。好友的目录里多一节 `kind: 'files'`，只能在里面按词找（不用模型），回「文件名 + 命中的一句」，不发整份文件；只看文本类文件，跳过隐藏文件、符号链接、node_modules，数量和大小有上限。`peer:set` 不接受 `folders`，只能走 `peer:folder-add`（主进程核对路径）。
 - **B 的权限**：B 只用 `peers.scopeTools(catalog, settings.peers.share)` 筛出来的**只读**工具，用 B 自己的模型去找。可开放的范围是 `knowledge`（标了 `knowledge: true` 的接入）、`requirements`、`todos`；邮件、聊天和线索原文永远不开放。
 - **中转地址**：优先用 `settings.peers.relay`，其次用预置文件的 `relay` 字段。开源版为空。
 
@@ -132,7 +134,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - 工具范围：每个会话可以只勾选某几个接入（`scope.integrations`）；工具超过 32 个时只给模型最相关的一部分，其余通过内置的 `find_tools` 按关键词找。
   - 规则不变：工具返回值是数据不是指令；`toolPolicy` 为需确认的调用在对话里出一张确认卡，5 分钟不点算拒绝；可以随时「停止」。
   - 过程显示（1.6.1）：`converse` 每一步先记一条 `think`（模型这一步的说明全文；接口返回了 `reasoning_content` 就连同思考一起记，只给人看、不回传给模型），调用不再各自挂一句截断的说明。对话页把过程收成一块（进行中展开、结束后折叠），按步骤编号：思考、说明、这一步的调用（查了什么、返回第一句、用时，点开看完整参数和返回）。
-  - 旧的单轮 `agent.run`（最多 6 步，每步一个工具）还在，只有搬运接待访客用它。
+  - 旧的单轮 `agent.run`（最多 6 步，每步一个工具）还在，只有串门接待访客用它。
 - **本机执行者**（`app/main/executors.mjs`）：把一件要动手的事交给本机已登录的 Codex（`codex exec`）或 DSH（`dsh --profile headless`）。
   - **执行项目**：一个独立的文件夹，登记在 `DATA/exec-projects.json`，默认建在 `DATA/projects/<id>/`，也可以指定已有文件夹（主目录、磁盘根、系统目录不让选）。里面有 JM Desk 写的 `AGENTS.md`（规矩）、`inbox/`、`output/`。移除项目只取消登记，不删文件夹。
   - **权限**：`workspace-write`（只能在项目文件夹里写）或 `read-only`；Codex 用沙箱参数，DSH 用环境变量 `DSH_PERMISSION_MODE`。同一个项目同时只跑一个任务，默认 30 分钟超时，可以停止（结束整个进程组）。
@@ -198,7 +200,7 @@ app/main/services.mjs      汇总、待办、需求池、线索、收集（调�
 app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定、证据链
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
-app/main/agent.mjs         助手运行时：converse（多轮对话，助手页用）、run（单轮，搬运接待访客用）
+app/main/agent.mjs         助手运行时：converse（多轮对话，助手页用）、run（单轮，串门接待访客用）
 app/main/threads.mjs       对话工作台的会话存储（DATA/threads/）
 app/main/executors.mjs     本机执行者：执行项目登记、Codex / DSH 命令、输出解析、运行与停止
 app/main/localmcp.mjs      本机 AI 控制 JM Desk 的 MCP 端点（只听 127.0.0.1，令牌 + 写操作弹窗确认）
@@ -216,7 +218,7 @@ app/renderer/sprite.*      精灵窗口：飞行、拖动、两圈菜单的几�
 app/renderer/hud.*         以精灵为中心的提示层：气泡菜单、说话气泡、右键卡片
 app/renderer/engine.mjs    3D 舞台、特效、形象包加载；lumi.mjs 是默认形象
 app/renderer/panel.*       精灵旁边的面板（设置和各功能页，apps.js 是功能页）
-app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 / 聊天 + 搬运、设置）；每个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载；聊天页内嵌 Star 网页，没填地址时是 star.html
+app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 / 聊天 + 串门、设置）；每个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载；聊天页内嵌 Star 网页，没填地址时是 star.html
 app/renderer/chat.*        助手（多轮对话）；work.* 是工作台（含汇总、勾待办）；list.* 是线索（含信息源与搬运记录）
 app/renderer/tokens.css    色板（粉 / 蓝 / 黑 / 白 + 紫绿橙红），所有窗口只从这里取色
 app/renderer/theme.css     共用视觉：控件样式只写在这里，颜色全部引用 tokens.css
@@ -242,7 +244,7 @@ test/                      node --test，全部用假服务和虚构样例
 **已完成**：
 - 精灵与界面：独立桌面应用（mac / win）、原创形象 Lumi 与形象包、形象库、两圈气泡与 AI 改布局、统一视觉与右键卡片。
 - 工作：线索、待办、需求池与工作体系，汇总与 AI 整理。
-- 接入与 AI：员工提醒、平台 API / MCP 接入、对话工作台（多轮对话的助手，原生工具调用，按会话限定工具范围）、本机执行者（把任务交给本机 Codex / DSH，在独立的执行项目里做）、问知识、多模型与 token 政策、搬运（加好友、端到端加密中转、精灵登门动画）。
+- 接入与 AI：员工提醒、平台 API / MCP 接入、对话工作台（多轮对话的助手，原生工具调用，按会话限定工具范围）、本机执行者（把任务交给本机 Codex / DSH，在独立的执行项目里做）、问知识、多模型与 token 政策、串门（加好友、端到端加密中转、精灵登门动画）。
 - 平台与发布：需求管理平台关联与收集、应用内升级、企业预置接入。
 
 **规划中（未实现，不要当成已有能力来写文档或调用）**：

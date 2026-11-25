@@ -94,9 +94,9 @@ export function createPeerHub(d) {
     const q = clip(String(ask || '').trim(), 400); if (!q) throw new Error('说说要去找什么');
     // 对方给过目录：必须先选搬哪一块，对方只在这个范围里找（省对方的时间和模型用量）。对方是旧版本、没有目录时才按老办法整体找
     const sections = peer.catalog?.sections || []; let sc = null;
-    if (peer.catalog && !sections.length) throw new Error('对方现在没有开放可以搬的内容');
+    if (peer.catalog && !sections.length) throw new Error('对方现在没有开放可以找的内容');
     if (sections.length) {
-      const hit = P.findScope(sections, P.cleanScope(scope)); if (!hit) throw new Error('先选要搬哪一块：' + sections.map(s => s.name).join('、'));
+      const hit = P.findScope(sections, P.cleanScope(scope)); if (!hit) throw new Error('先选要去哪一块找：' + sections.map(s => s.name).join('、'));
       sc = { section: hit.section.id, item: hit.item?.id ?? null, label: P.scopeLabel(hit) };
     }
     if ([...trips.values()].some(t => t.status !== 'done')) throw new Error('精灵已经出门了，等它回来再去');
@@ -114,7 +114,7 @@ export function createPeerHub(d) {
     log({ dir: 'out', peer: name(t.peer), ask: t.ask, scope: t.scope || '', status: r.status, answer: r.answer || '', note: r.note || '', used: r.used || [] });
     const got = r.status === 'ok';
     d.sprite({ type: 'trip', phase: 'return', carry: got });
-    setTimeout(() => d.say(got ? `🎁 从 ${name(t.peer)} 那里搬回来了` : `🙈 空手回来了`, got ? clip(t.ask, 30) : r.note || '', { id: 'app.peers' }), 2600);
+    setTimeout(() => d.say(got ? `🎁 从 ${name(t.peer)} 那里带回来了` : `🙈 空手回来了`, got ? clip(t.ask, 30) : r.note || '', { id: 'app.peers' }), 2600);
     setTimeout(() => trips.delete(id), 60e3);
     d.onUpdate();
   }

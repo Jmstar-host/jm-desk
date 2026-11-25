@@ -34,9 +34,9 @@ test('加好友后程序自动交换目录；出门必须选范围；对方只�
     const cat = await until(() => a.hub.state().peers[0].catalog);   // 没有人点任何按钮，目录自己到了
     assert.deepEqual(cat.sections.map(s => [s.id, s.items.length]), [['k:kb', 2], ['requirements', 1]]);
     assert.deepEqual((await until(() => b.hub.state().peers[0].catalog)).sections, [], 'A 没有开放内容时目录是空的');
-    await assert.rejects(b.hub.visit(b.hub.state().peers[0].id, '找点东西'), /对方现在没有开放可以搬的内容/);
-    await assert.rejects(a.hub.visit(bId, '绑定失败怎么排查'), /先选要搬哪一块：公司知识库、需求池/);
-    await assert.rejects(a.hub.visit(bId, '绑定失败怎么排查', { section: 'k:kb', item: 'not-there' }), /先选要搬哪一块/);
+    await assert.rejects(b.hub.visit(b.hub.state().peers[0].id, '找点东西'), /对方现在没有开放可以找的内容/);
+    await assert.rejects(a.hub.visit(bId, '绑定失败怎么排查'), /先选要去哪一块找：公司知识库、需求池/);
+    await assert.rejects(a.hub.visit(bId, '绑定失败怎么排查', { section: 'k:kb', item: 'not-there' }), /先选要去哪一块找/);
     await a.hub.visit(bId, '绑定失败怎么排查', { section: 'k:kb', item: 'orders' });
     const guest = await until(() => b.hub.state().guests[0]);
     assert.equal(guest.scope, '公司知识库 › orders'); assert.equal(b.log.opened[0].scope, '公司知识库 › orders', '访客窗口写明要搬哪一块'); assert.equal(b.log.opened[0].ask, '绑定失败怎么排查');
