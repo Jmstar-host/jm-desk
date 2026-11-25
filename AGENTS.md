@@ -23,7 +23,7 @@
 ] }
 ```
 
-- 分组可以写 `action`（一个 `cmd` 类动作）而不写 `items`：第一层点一下直接执行，不展开第二层（1.4.2）。默认布局里现在没有这种分组。
+- 分组可以写 `action`（一个 `cmd` 类动作）而不写 `items`：第一层点一下直接执行，不展开第二层（1.4.2）。默认布局里的「占用」（`sys.load`）就是这样。布局里的 `seen` 记着迁移时加过的默认分组，用户删掉后不再加回来。
 - `groups` 是内圈分组，1–6 个；`items` 是点开分组后外圈的气泡，每组最多 8 个，每个动作最多出现一次。**必须保留 `app.settings`**，否则用户改不回来。
 - `label` 1–5 个字；`id` 用小写英文；`color` 是两个 `#rrggbb`，只能用色板里的颜色（其他颜色会被对齐到最近的一种，见界面约定）。
 - `icon` 只能从这些里选：`magic mail sliders portal burst orbit dash heart loop smile doc check chart inbox quill box wing moon pin corner bell`
@@ -34,6 +34,7 @@
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
 | `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的页面）、主窗口（上次看的页面）；主窗口还有「聊天」页（Star，见 §4.5） | 命令 |
 | `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
+| `sys.load` | 占用（气泡中间显示 CPU、下面显示内存，越忙颜色越暖；点开活动监视器 / 任务管理器） | 命令 |
 | `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` | 邮箱 写邮件 未读 | 邮箱（调起本机邮件客户端） |
 | `toggle.roam` `place.corner` | 自由飞 右下角 | 开关 / 位置 |
@@ -226,6 +227,9 @@ test/                      node --test，全部用假服务和虚构样例
 界面约定：
 - **色板只有一份**：`app/renderer/tokens.css`。主色粉（品牌、主要动作）、蓝（平台、编号、选中）、黑（文字、待办）、白（底面）；辅助色紫（专项、AI）、绿（成功）、橙（提醒、待处理）、红（危险、必填）。页面和 `theme.css` 里不写具体色值，只用变量；工作层级用 `.kd.project / .requirement / .todo / .program`（蓝 / 粉 / 黑 / 紫）。界面颜色不跟着形象变（`main.mjs` 的 `themeFor` 固定返回粉 + 蓝）。气泡分组颜色由 `catalog.mjs` 的 `snapColor` 对齐到 `PALETTE`。
 - 精灵窗口只移动、不改大小；新的浮层放进提示层（hud）。
+- **精灵怎么动**（1.7.0，参考 RunCat，`settings.sprite`，设置 › 气泡）：
+  - `hoverMenu`（默认开）：鼠标在精灵上停 0.35 秒就打开气泡；这样打开的，鼠标离开精灵和气泡 0.9 秒就收起（`hud.js` 的 `hoverMenu`）。刚悬停打开时点一下精灵不会收起。
+  - `motion`：`cpu`（默认）/ `cpu+mem`（两者平均）/ `off`。`app/main/sysload.mjs` 每 2 秒采样（CPU 扣掉 JM Desk 自己的占用、做平滑；macOS 内存按 vm_stat 的活动 + 联动 + 压缩页），`tempoFor` 映射成 1–3.5 倍速：三成以下正常，九成以上最快。`engine.mjs` 的 `tempo()` 让动画时间按倍速推进（翅膀、尾巴、小把戏都更快，忙时不打瞌睡）；`sprite.js` 自由飞时速度乘倍速、歇得更短，倍速 2 以上常常满屏快飞。系统设置里开了「减少动态效果」时不加速。
 - 右键菜单不用系统原生菜单。
 - 面板钉住的状态以主进程为准（`panel:pin` / `panel:pin-state`）。
 - 说明文字最多两行；长路径只显示文件名，完整内容放在悬停提示里。

@@ -118,6 +118,17 @@ async function tabCharacter(body) {
 
 /* ---------- 气泡布局 ---------- */
 function tabLayout(body) {
+  /* 精灵怎么动（1.7.0）：鼠标放上去就打开气泡；电脑越忙动作越快（参考 RunCat） */
+  const act = h('div', { class: 'card' }, h('h3', {}, '精灵怎么动'), h('div', { class: 'muted' }, '读取中…'));
+  body.append(act);
+  ipcRenderer.invoke('sprite:cfg').then(c => {
+    const set = p => ipcRenderer.invoke('sprite:cfg-set', p);
+    act.replaceChildren(h('h3', {}, '精灵怎么动'),
+      h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: c.hoverMenu, onchange: e => set({ hoverMenu: e.target.checked }) }), '鼠标放在精灵上就打开气泡（不用点）'),
+      h('div', { class: 'row' }, h('span', { class: 'muted' }, '动作快慢跟着'), h('select', { onchange: e => set({ motion: e.target.value }) },
+        ...[['cpu', 'CPU 占用'], ['cpu+mem', 'CPU + 内存占用'], ['off', '不跟（一直正常速度）']].map(([v, n]) => h('option', { value: v, selected: c.motion === v }, n)))),
+      h('div', { class: 'muted' }, '电脑越忙，精灵扇翅膀、甩尾巴越快，自由飞时满屏快飞；三成以下是正常速度。第一层的「占用」气泡显示 CPU 和内存。'));
+  }).catch(() => {});
   const L = structuredClone(S.layout), msg = h('div');
   const usedIds = () => new Set(L.groups.flatMap(g => g.items));
   const draw = () => {
@@ -128,7 +139,7 @@ function tabLayout(body) {
         h('span', { style: 'flex:1' }),
         h('button', { class: 'ghost', title: '上移', disabled: gi === 0, onclick: () => { [L.groups[gi - 1], L.groups[gi]] = [L.groups[gi], L.groups[gi - 1]]; draw(); } }, '↑'),
         h('button', { class: 'ghost', title: '删除分组', onclick: () => { L.groups.splice(gi, 1); draw(); } }, '删除')),
-      h('div', {}, ...g.items.map((id, ii) => h('span', { class: 'chip' },
+      g.action ? h('div', { class: 'muted' }, `第一层点一下直接：${(S.catalog[g.action] || {}).label || g.action}`) : h('div', {}, ...g.items.map((id, ii) => h('span', { class: 'chip' },
         h('i', { title: '左移', onclick: () => { if (ii) { [g.items[ii - 1], g.items[ii]] = [g.items[ii], g.items[ii - 1]]; draw(); } } }, '‹'),
         (S.catalog[id] || {}).label || id, h('i', { title: '隐藏', onclick: () => { g.items.splice(ii, 1); draw(); } }, '×'))),
         h('select', { class: 'chip add', onchange: e => { if (e.target.value) { g.items.push(e.target.value); draw(); } } }, h('option', { value: '' }, '＋ 添加'),

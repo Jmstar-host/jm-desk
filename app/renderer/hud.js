@@ -49,7 +49,7 @@ const $ = id => document.getElementById(id);
 const root = $('root'), sayEl = $('say'), tipEl = $('tip');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let frame = null, mewL = { x: 0, y: 0, r: 0 }, menuOpen = false, sayOn = false, busy = false, idleT = null, leaveT = null, ignoring = null, items = [];
-let sayTimer = null, tickTimer = null, sayAction = null, ctxOpen = false;
+let sayTimer = null, tickTimer = null, sayAction = null, ctxOpen = false, hoverMenu = false, awayT = null; // hoverMenu：这次是鼠标放上去打开的，移开就收起
 const ctxEl = $('ctx');
 function setIgnore(v) { if (v === ignoring) return; ignoring = v; try { me.setIgnoreMouseEvents(v, { forward: true }); } catch (e) {} }
 function armIdle() { clearTimeout(idleT); idleT = setTimeout(() => enqueue(() => closeMenu()), 15000); }
@@ -86,7 +86,8 @@ function hideTip() { tipEl.classList.remove('show'); }
 
 function fill(el, it) {
   el.className = `mb ${it.kind}${it.mini ? ' mini' : ''}${it.on === true ? ' on' : it.on === false ? ' off' : ''}${el.classList.contains('in') ? ' in' : ''}`;
-  el.querySelector('.orb').innerHTML = icon(it.icon, it.c[0], it.c[1]) + '<span class="lb"></span><i class="glint"></i>';
+  el.querySelector('.orb').innerHTML = (it.meter ? '<span class="mv"></span>' : icon(it.icon, it.c[0], it.c[1])) + '<span class="lb"></span><i class="glint"></i>'; // 「占用」气泡：中间是数字
+  if (it.meter) el.querySelector('.mv').textContent = it.meter;
   el.querySelector('.lb').textContent = it.label;
   el.dataset.tip = it.tip || '';
   const n = el.querySelector('.n'); if (it.n) { n.textContent = it.n > 99 ? '99+' : String(it.n); n.style.display = ''; } else n.style.display = 'none';
@@ -127,7 +128,7 @@ async function animOut(fast) {
 async function closeMenu(fast, silent) {
   if (!menuOpen) return;
   await animOut(fast); box.replaceChildren(); menuOpen = false; busy = false;
-  clearTimeout(idleT); clearTimeout(leaveT); maybeHide();
+  clearTimeout(idleT); clearTimeout(leaveT); clearTimeout(awayT); awayT = null; hoverMenu = false; maybeHide();
   if (!silent) tell('closed');
 }
 function pick(it, el) {
@@ -206,7 +207,7 @@ ipcRenderer.on('menu', (_e, json) => {
       if (menuOpen) await animOut(m.transition !== 'switch');
       if (sayOn) hideSay(true);
       await placeFrame(m.mew, m.wa);
-      build(m.items); showWin(); menuOpen = true; busy = false; setIgnore(false);
+      build(m.items); showWin(); menuOpen = true; busy = false; setIgnore(false); if (m.transition !== 'switch') hoverMenu = !!m.hover;
       await wait(34); armIdle(); animIn();
     } else if (m.type === 'update') {
       for (const it of m.items) { const el = box.querySelector(`[data-id="${it.id}"]`); if (el) fill(el, { ...items.find(x => x.id === it.id), ...it }); }
@@ -238,11 +239,15 @@ function inEl(e, el) { const r = el.getBoundingClientRect(); return e.clientX >=
 document.addEventListener('mousemove', e => {
   const overMew = Math.hypot(e.clientX - mewL.x, e.clientY - mewL.y) <= mewL.r;
   if (ctxOpen) { clearTimeout(leaveT); setIgnore(overMew && !inEl(e, ctxEl)); }
-  else if (menuOpen) { clearTimeout(leaveT); armIdle(); setIgnore(overMew); }
+  else if (menuOpen) {
+    clearTimeout(leaveT); armIdle(); setIgnore(overMew);
+    // 悬停打开的：鼠标离开精灵和气泡 0.9 秒就收起
+    if (hoverMenu) { if (overMew || e.target.closest('.mb')) { clearTimeout(awayT); awayT = null; } else if (!awayT) awayT = setTimeout(() => { awayT = null; enqueue(() => closeMenu()); }, 900); }
+  }
   else if (sayOn) setIgnore(!inEl(e, sayEl));
   else setIgnore(true);
 });
-document.addEventListener('mouseleave', () => { hideTip(); if (ctxOpen) { clearTimeout(leaveT); leaveT = setTimeout(closeCtx, 1800); } if (menuOpen) { clearTimeout(leaveT); leaveT = setTimeout(() => enqueue(() => closeMenu()), 2200); } });
+document.addEventListener('mouseleave', () => { hideTip(); if (ctxOpen) { clearTimeout(leaveT); leaveT = setTimeout(closeCtx, 1800); } if (menuOpen) { clearTimeout(leaveT); leaveT = setTimeout(() => enqueue(() => closeMenu()), hoverMenu ? 700 : 2200); } });
 document.addEventListener('pointerdown', e => { if (ctxOpen && !e.target.closest('#ctx')) closeCtx(); if (menuOpen && !e.target.closest('.mb') && !e.target.closest('#say')) enqueue(() => closeMenu()); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCtx(); enqueue(() => closeMenu()); } });
 setIgnore(true);

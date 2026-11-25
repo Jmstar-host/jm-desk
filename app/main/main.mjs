@@ -1,6 +1,8 @@
 /* JM Desk 主进程：精灵窗口、提示层、应用面板、托盘；布局 / 形象 / 设置的读写与热加载；AI 定制。 */
 import { session } from 'electron';
 import * as star from './star.mjs';
+import * as sysload from './sysload.mjs';
+import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, screen, shell, Tray, Menu, nativeImage, safeStorage, dialog, net, clipboard, powerMonitor, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -623,6 +625,7 @@ function runAction(id) {
   if (!a) return;
   if (a.kind === 'app') return openPanel(id);
   if (id === 'app.desk') return openDesk(null);
+  if (id === 'sys.load') return process.platform === 'darwin' ? shell.openPath('/System/Applications/Utilities/Activity Monitor.app') : process.platform === 'win32' ? spawn('taskmgr', { detached: true, stdio: 'ignore' }).unref() : null;
   if (id === 'app.work') return openDesk('work');
   if (id === 'app.agent') return openDesk('chat');
   if (id === 'app.clues') return openDesk('list');
@@ -1021,6 +1024,14 @@ ipcMain.handle('mp2:unlink', () => { if (linking) { linking.ac.abort(); linking 
 ipcMain.handle('mp2:open-revoke', () => { const b = mp2link.linkStatus().baseUrl || settings().mp2Url; if (b) openHttp(b.replace(/\/+$/, '') + '/ai-access'); });
 
 function toSprite(m) { if (sprite && !sprite.isDestroyed()) sprite.webContents.send('jm', JSON.stringify(m)); }
+/* 精灵的动作设置（1.7.0，settings.sprite）：hoverMenu 鼠标放上去就打开气泡；motion 动作跟随电脑忙闲 off | cpu | cpu+mem */
+const spriteCfg = () => ({ hoverMenu: settings().sprite?.hoverMenu !== false, motion: ['off', 'cpu', 'cpu+mem'].includes(settings().sprite?.motion) ? settings().sprite.motion : 'cpu' });
+ipcMain.handle('sprite:cfg', () => spriteCfg());
+ipcMain.handle('sprite:cfg-set', (_e, p) => { const s = settings(); s.sprite = { ...spriteCfg(), ...(p && typeof p === 'object' ? { ...('hoverMenu' in p ? { hoverMenu: !!p.hoverMenu } : {}), ...(['off', 'cpu', 'cpu+mem'].includes(p.motion) ? { motion: p.motion } : {}) } : {}) }; store.write('settings.json', s); toSprite({ type: 'spriteCfg', ...spriteCfg() }); return spriteCfg(); });
+/* 系统占用：每 2 秒采一次推给精灵（动作快慢、「占用」气泡） */
+let lastLoad = null;
+sysload.startSampler(l => { lastLoad = l; const c = spriteCfg(); toSprite({ type: 'load', cpu: l.cpu, mem: l.mem, tempo: sysload.tempoFor(sysload.loadFor(c.motion, l.cpu, l.mem)) }); }, 2000,
+  () => app.getAppMetrics().reduce((n, m) => n + (m.cpu?.percentCPUUsage || 0), 0) / 100 / Math.max(1, os.cpus().length)); // 扣掉 JM Desk 自己
 function sayToSprite(title, sub, ms = 0) { toSprite({ type: 'say', title, sub, ms, trick: 'wave' }); }
 async function pushCounts() {
   try { const m = await services.mailStats(); const tasks = services.tasks().filter(t => t.status === 'open').length;

@@ -13,6 +13,7 @@ export const CATALOG = {
   'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '和 AI 多轮对话：查资料、问知识库、调用平台办事、交给本机执行者' },
   'app.work':       { kind: 'cmd', icon: 'chart', label: '工作台', tip: '专项 › 项目 › 需求 › 待办，汇总线索、勾掉待办、对齐需求管理平台', count: 'tasks' },
   'app.clues':      { kind: 'cmd', icon: 'inbox', label: '线索', tip: '收到的邮件、飞书、纪要原文，信息源和搬运到需求管理平台' },
+  'sys.load':       { kind: 'cmd', icon: 'dash', label: '占用', tip: 'CPU 和内存占用；点一下打开活动监视器' },
   'app.peers':      { kind: 'app', icon: 'portal', label: '搬运', tip: '选一个好友、选好范围，精灵飞去好友的桌面找回来' },
   'app.settings':   { kind: 'app', icon: 'sliders', label: '设置', tip: '形象、气泡、需求管理平台、接入、模型' },
   'app.reminders':  { kind: 'app', icon: 'bell', label: '提醒', tip: '订饭、吃饭、下班提醒，时间可以自己设' },
@@ -29,6 +30,7 @@ export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
     { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
+    { id: 'load', label: '占用', icon: 'dash', color: ['#16a34a', '#3b82f6'], tip: 'CPU 和内存占用', action: 'sys.load', items: [] },
     { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、搬运', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
     { id: 'mail', label: '邮箱', icon: 'mail', color: ['#3b82f6', '#8b5cf6'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
     { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], tip: '设置、提醒、精灵位置', items: ['app.settings', 'app.reminders', 'toggle.roam', 'place.corner'] },
@@ -63,7 +65,10 @@ export function migrateLayout(l) {
   }).filter(g => g.items.length || g.action || (changed = true, false));
   // 1.5.2 去掉了本机会议纪要：1.4.2 加到第一层的「会议」分组删掉（会议内容走飞书会议纪要，作为线索收进来）
   const kept = groups.filter(g => g.action !== 'app.meeting'); if (kept.length !== groups.length) changed = true;
-  return { layout: { ...l, groups: kept }, changed };
+  // 1.7.0：第一层加「占用」（CPU / 内存，点开活动监视器）。只加一次，用户删掉后不再加回来（seen 记着）
+  const seen = new Set(Array.isArray(l.seen) ? l.seen : []);
+  if (!seen.has('load')) { seen.add('load'); changed = true; if (kept.length < 6 && !kept.some(g => g.action === 'sys.load' || g.items.includes('sys.load'))) kept.splice(Math.min(1, kept.length), 0, { ...DEFAULT_LAYOUT.groups.find(g => g.id === 'load'), items: [] }); }
+  return { layout: { ...l, groups: kept, seen: [...seen] }, changed };
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;

@@ -22,6 +22,10 @@ let anchor = { x: window.screenX, y: window.screenY }; // 精灵方块左上角�
 let bubbleOn = false, bubbleTimer = null, bubbleAction = null, drag = null, raf = 0;
 let menuOn = false, menuLevel = 'root', clickTimer = null, lastClickAt = 0; // 点击精灵弹出的气泡菜单
 const counts = { unread: 0, tasks: 0 };
+/* 1.7.0：电脑忙闲（主进程每 2 秒推一次）和精灵的动作设置 */
+let LOAD = { cpu: null, mem: null, tempo: 1 }, BOOST = 1, CFG = { hoverMenu: true, motion: 'cpu' };
+ipcRenderer.invoke('sprite:cfg').then(c => { if (c) CFG = c; }).catch(() => {});
+let hoverT = null, menuByHover = false, menuOpenedAt = 0;
 
 /* 显示器信息由主进程推过来（启动时取一次，显示器变化时更新），这里只在本地算。
  * 以前每一帧都经 remote 同步问主进程「这个点在哪块屏幕」「把窗口挪到这」：主进程一忙（读文件、连接入、汇总），精灵就卡住，忙完又跳一下。 */
@@ -112,13 +116,18 @@ document.addEventListener('mousemove', e => {
   if (drag) return;
   const om = overMew(e);
   setIgnore(!om);
-  if (om !== hovering) { hovering = om; mew.hover(om); }
+  if (om !== hovering) {
+    hovering = om; mew.hover(om); clearTimeout(hoverT);
+    // 鼠标放上去停一下（0.35 秒）就打开气泡，不用点（设置里可以关）；按着鼠标、拖动、正在说话时不打开
+    if (om && CFG.hoverMenu && !menuOn && !bubbleOn && !e.buttons) hoverT = setTimeout(() => { if (hovering && !menuOn && !drag && !bubbleOn) openMenu('root', true); }, 350);
+  }
 });
-document.addEventListener('mouseleave', () => { if (!drag) { setIgnore(true); if (hovering) { hovering = false; mew.hover(false); } } });
+document.addEventListener('mouseleave', () => { clearTimeout(hoverT); if (!drag) { setIgnore(true); if (hovering) { hovering = false; mew.hover(false); } } });
 
 /* 拖动：按住泡泡拖；移动不到 4 像素算点击 */
 $('stage').addEventListener('pointerdown', e => {
   if (e.button !== 0 || !overMew(e)) return;
+  clearTimeout(hoverT);
   drag = { sx: e.screenX, sy: e.screenY, ax: anchor.x, ay: anchor.y, lx: e.screenX, ly: e.screenY, moved: false, id: e.pointerId };
   try { $('stage').setPointerCapture(e.pointerId); } catch (err) {}
 });
@@ -143,7 +152,7 @@ const endDrag = e => {
   // 气泡里有新邮件提醒时，点精灵直接打开那封邮件；否则立刻弹出气泡菜单（不再等双击判定，双击时再收起）
   if (bubbleOn && bubbleAction) { closeBubble(); send('action', bubbleAction); return; }
   const now = performance.now(); if (now - lastClickAt < 320) { lastClickAt = 0; return; } lastClickAt = now; // 双击的第二下交给 dblclick
-  if (!menuOn) openMenu('root'); else if (menuLevel !== 'root') switchLevel('root'); else closeMenu();
+  if (!menuOn) openMenu('root'); else if (menuLevel !== 'root') switchLevel('root'); else if (menuByHover && now - menuOpenedAt < 1500) return; else closeMenu(); // 刚因为悬停打开的，点一下不要又收起来
 };
 $('stage').addEventListener('pointerup', endDrag);
 $('stage').addEventListener('pointercancel', endDrag);
@@ -167,6 +176,11 @@ ipcRenderer.on('jm', (_e, json) => {
   else if (m.type === 'shown') { anchor = clampAnchor({ x: window.screenX, y: window.screenY }); layout(); brainReset(); }
   else if (m.type === 'cfg') { cfgMode = m.mode || cfgMode; }
   else if (m.type === 'counts') { counts.unread = m.unread || 0; counts.tasks = m.tasks || 0; }
+  else if (m.type === 'spriteCfg') { CFG = { hoverMenu: m.hoverMenu, motion: m.motion }; }
+  else if (m.type === 'load') {
+    LOAD = { cpu: m.cpu, mem: m.mem, tempo: m.tempo }; BOOST = REDUCED ? 1 : Math.max(1, m.tempo || 1); mew.tempo && mew.tempo(BOOST);
+    if (menuOn) { const it = curItems.find(x => x.id === 'sys.load'); if (it) { curItems = menuItems(menuLevel); sendOv({ type: 'update', items: curItems.filter(x => x.id === 'sys.load').map(wire) }); } }
+  }
 });
 /* ================= 桌面小精灵：自由活动 =================
  * 自己在桌面上飞：随机闲逛、趴在屏幕底边、从屏幕边探头、偶尔去别的显示器；
@@ -191,7 +205,7 @@ function pickDisplay() { const all = displays(), cur = curDisplay(); return all.
 
 function brainReset() { B.pos = { ...anchor }; B.vel = { x: 0, y: 0 }; B.target = null; B.mode = 'idle'; B.until = performance.now() + rand(2000, 5000); }
 function brainStay(ms) { brainReset(); B.mode = 'stay'; B.until = performance.now() + ms; }
-function idle(ms) { B.target = null; B.mode = 'idle'; B.until = performance.now() + ms; B.after = null; }
+function idle(ms) { B.target = null; B.mode = 'idle'; B.until = performance.now() + ms / Math.min(2, BOOST); B.after = null; } // 电脑越忙，歇得越短（最多短一半）
 function flyTo(a, mode = 'fly', speed = 380, wiggle = 40, after = null) { B.target = a; B.mode = mode; B.speed = speed; B.wiggle = wiggle; B.until = performance.now() + 15000; B.after = after; }
 
 function perch() {
@@ -227,6 +241,8 @@ function castSkill(name) {
 }
 function decide(now) {
   const bored = now - B.lastUser > 60000, r = Math.random();
+  // 电脑很忙（倍速 2 以上）：多半直接满屏快飞，夸夸飞
+  if (BOOST > 2 && r < 0.45) { const d = curDisplay(); if (d) { mew.trick(Math.random() < 0.5 ? 'dash' : 'barrel'); return flyTo(randomAnchor(d), 'zoom', rand(800, 1300), rand(40, 90), () => idle(rand(600, 1500))); } }
   if (bored && r < 0.3) return castSkill(pick(['teleport', 'burst', 'orbit', 'zoom', 'sparkle']));
   if (r < 0.08) return castSkill(pick(['burst', 'orbit', 'sparkle', 'teleport', 'zoom']));
   if (r < 0.48) { const d = curDisplay(); return d ? flyTo(randomAnchor(d), 'fly', rand(300, 480), rand(20, 60), () => idle(rand(2500, 6000))) : idle(4000); }
@@ -289,7 +305,7 @@ function brainTick() {
   if ((B.mode === 'idle' || B.mode === 'stay' || B.mode === 'skill') && now > B.until) decide(now);
   if (B.target) {
     const dx = B.target.x - B.pos.x, dy = B.target.y - B.pos.y, dist = Math.hypot(dx, dy);
-    const sp = Math.min(B.speed, dist * 2.4), ux = dx / (dist || 1), uy = dy / (dist || 1);
+    const sp = Math.min(B.speed * BOOST, dist * 2.4 * Math.max(1, BOOST * 0.8)), ux = dx / (dist || 1), uy = dy / (dist || 1);
     const w = B.wiggle * Math.sin(now / 380) * Math.min(1, dist / 120); // 飞行路线带一点波浪
     const tx = ux * sp - uy * w, ty = uy * sp + ux * w;
     const k = Math.min(1, dt * (B.mode === 'zoom' || B.mode === 'flee' ? 5 : 3.2));
@@ -394,15 +410,23 @@ function dyn(it) { // 运行时状态：开关、计数
   if (it.count && counts[it.count]) o.n = counts[it.count];
   return o;
 }
+/* 「占用」气泡：中间是 CPU 百分比，下面是内存；越忙颜色越暖（绿 → 橙 → 红，色板里的颜色） */
+const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+function loadItem(it) {
+  if (it.id !== 'sys.load') return it;
+  const cpu = LOAD.cpu, c = cpu == null ? it.c : cpu > 0.85 ? ['#e11d48', '#ea580c'] : cpu > 0.6 ? ['#ea580c', '#ec4899'] : ['#16a34a', '#3b82f6'];
+  return { ...it, c, meter: pct(cpu), label: '内存 ' + pct(LOAD.mem),
+    tip: `CPU ${pct(cpu)} · 内存 ${pct(LOAD.mem)}${BOOST > 1.05 ? ` · 精灵现在 ${BOOST.toFixed(1)} 倍速` : ''}\n点一下打开${navigator.platform.startsWith('Mac') ? '活动监视器' : '任务管理器'}` };
+}
 function menuItems(level) {
-  const groups = menuLayout.groups.map(g => g.action ? { id: g.action, act: true, icon: g.icon, label: g.label, tip: g.tip, c: g.color, ring: 0, mini: level !== 'root' }
+  const groups = menuLayout.groups.map(g => g.action ? loadItem({ id: g.action, act: true, icon: g.icon, label: g.label, tip: g.tip, c: g.color, ring: 0, mini: level !== 'root' })
     : { id: 'g:' + g.id, icon: g.icon, label: g.label, tip: g.tip, c: g.color, go: g.id, ring: 0, mini: level !== 'root', on: level === g.id ? true : undefined });
   if (level === 'root') return groups;
   const g = groupOf(level); if (!g) return groups;
   return [...groups, ...g.items.map(it => ({ ...dyn(it), c: it.color || g.color, ring: 1 }))];
 }
 const kindOf = it => (it.go || it.act ? 'cat' : 'item');
-const wire = it => ({ id: it.id, icon: it.icon, label: it.label, tip: it.tip, c: it.c, n: it.n || 0, on: it.on, stay: !!it.stay, kind: kindOf(it), mini: !!it.mini });
+const wire = it => ({ id: it.id, icon: it.icon, label: it.label, tip: it.tip, c: it.c, n: it.n || 0, on: it.on, stay: !!it.stay, kind: kindOf(it), mini: !!it.mini, ...(it.meter ? { meter: it.meter } : {}) });
 let ov = null, ovReady = false, ovPending = null, curItems = [];
 function overlayWin() {
   if (!remote || !win) return null;
@@ -461,11 +485,12 @@ function menuGeometry(list) {
 function showLevel(level, transition) {
   menuLevel = level; curItems = menuItems(level);
   const g = menuGeometry(curItems);
-  sendOv({ type: 'open', transition, mew: g.mew, wa: g.wa, items: curItems.map((it, i) => ({ ...wire(it), sx: g.pts[i].x, sy: g.pts[i].y })) });
+  sendOv({ type: 'open', transition, hover: menuByHover, mew: g.mew, wa: g.wa, items: curItems.map((it, i) => ({ ...wire(it), sx: g.pts[i].x, sy: g.pts[i].y })) });
   mew.puff && mew.puff(g.angles);
 }
-function openMenu(level = 'root') {
+function openMenu(level = 'root', viaHover = false) {
   if (bubbleOn) closeBubble();
+  menuByHover = !!viaHover; menuOpenedAt = performance.now();
   menuOn = true; mew.trick('wave'); showLevel(level, 'open');
 }
 function switchLevel(level) { if (menuOn) showLevel(level, 'switch'); }
@@ -484,7 +509,7 @@ function onMenuClick(id) {
 }
 setTimeout(overlayWin, 1500); // 提前建好，第一次点开也不卡
 
-window.__float = { openMenu, closeMenu, get menuOn() { return menuOn; }, get menuLevel() { return menuLevel; }, brain: B, castSkill, setRoam, get roamOn() { return roamOn; }, remote: !!remote, win: !!win, layout, say, get anchor() { return anchor; }, get bubbleOn() { return bubbleOn; } };
+window.__float = { get load() { return { ...LOAD, boost: BOOST }; }, get cfg() { return CFG; }, openMenu, closeMenu, get menuOn() { return menuOn; }, get menuLevel() { return menuLevel; }, brain: B, castSkill, setRoam, get roamOn() { return roamOn; }, remote: !!remote, win: !!win, layout, say, get anchor() { return anchor; }, get bubbleOn() { return bubbleOn; } };
 setIgnore(true);
 setTimeout(layout, 300);
 send('ready');

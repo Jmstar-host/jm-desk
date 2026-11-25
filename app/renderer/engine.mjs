@@ -167,7 +167,7 @@ export function createSprite(host, opts = {}) {
   const st = {
     cast: 0, castTarget: 0, burst: 0, hover: false,
     pos: new THREE.Vector2(0, 0), vel: new THREE.Vector2(0, 0), target: new THREE.Vector2(0, 0), retarget: 0,
-    ext: new THREE.Vector2(0, 0), sk: null, hidden: false, trick: null, nextTrick: 3 + Math.random() * 3, sleepy: 0, face: 0, lean: 0,
+    ext: new THREE.Vector2(0, 0), sk: null, hidden: false, trick: null, nextTrick: 3 + Math.random() * 3, sleepy: 0, face: 0, lean: 0, tempo: 1, tempoTo: 1, at: 0,
   };
   const roam = opts.roam ?? 1;
   const BOUND = { x: 0.42 * roam, y: 0.22 * roam };
@@ -199,12 +199,15 @@ export function createSprite(host, opts = {}) {
     requestAnimationFrame(frame);
     if ((ms - last) / 1000 < gap - 0.002) return;
     last = ms;
-    const dt = Math.min(0.1, clock.getDelta() || 0.016), t = clock.elapsedTime;
+    /* tempo（1.7.0）：电脑越忙动作越快（RunCat 那样）。动画用自己的时间 st.at，按倍速推进；和鼠标空闲比较的仍用真实时间 tc */
+    const dt0 = Math.min(0.1, clock.getDelta() || 0.016), tc = clock.elapsedTime;
+    st.tempo += (st.tempoTo - st.tempo) * Math.min(1, dt0 * 1.2);
+    const dt = Math.min(0.12, dt0 * st.tempo); st.at += dt; const t = st.at;
     st.cast += (st.castTarget - st.cast) * Math.min(1, dt * 3);
     const c = st.cast;
     const p = screenToLocal(ptr.x, ptr.y);
-    const near = opts.followPointer !== false && p.dist < 260 && t - ptr.t < 3; // followPointer=false：不往鼠标那边凑、不转头看鼠标
-    if (t - ptr.t > 60 && !c) st.sleepy = Math.min(1, st.sleepy + dt * 0.15); else st.sleepy = Math.max(0, st.sleepy - dt * 2);
+    const near = opts.followPointer !== false && p.dist < 260 && tc - ptr.t < 3; // followPointer=false：不往鼠标那边凑、不转头看鼠标
+    if (tc - ptr.t > 60 && !c && st.tempo < 1.4) st.sleepy = Math.min(1, st.sleepy + dt * 0.15); else st.sleepy = Math.max(0, st.sleepy - dt * 2);
     const zz = st.sleepy;
 
     // ---- 飞行：随机找目标点，鼠标靠近就往鼠标那边凑；施法时回到中间 ----
@@ -362,6 +365,8 @@ export function createSprite(host, opts = {}) {
     },
     cast(on) { st.castTarget = on ? 1 : 0; st.sleepy = 0; if (on) st.burst = 1; },
     fps(v) { gap = 1 / v; },
+    tempo(v) { st.tempoTo = Math.max(1, Math.min(4, Number(v) || 1)); if (st.tempoTo > 1.4) st.sleepy = 0; },
+    get speedup() { return st.tempo; },
     /* 被拖动时：身体往反方向晃一下、有点惯性（dx/dy 是这一帧拖动的像素） */
     nudge(dx, dy) {
       st.vel.x = THREE.MathUtils.clamp(st.vel.x - dx * 0.012, -1.6, 1.6);
