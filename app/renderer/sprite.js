@@ -395,12 +395,13 @@ function dyn(it) { // 运行时状态：开关、计数
   return o;
 }
 function menuItems(level) {
-  const groups = menuLayout.groups.map(g => ({ id: 'g:' + g.id, icon: g.icon, label: g.label, tip: g.tip, c: g.color, go: g.id, ring: 0, mini: level !== 'root', on: level === g.id ? true : undefined }));
+  const groups = menuLayout.groups.map(g => g.action ? { id: g.action, act: true, icon: g.icon, label: g.label, tip: g.tip, c: g.color, ring: 0, mini: level !== 'root' }
+    : { id: 'g:' + g.id, icon: g.icon, label: g.label, tip: g.tip, c: g.color, go: g.id, ring: 0, mini: level !== 'root', on: level === g.id ? true : undefined });
   if (level === 'root') return groups;
   const g = groupOf(level); if (!g) return groups;
   return [...groups, ...g.items.map(it => ({ ...dyn(it), c: it.color || g.color, ring: 1 }))];
 }
-const kindOf = it => (it.go ? 'cat' : 'item');
+const kindOf = it => (it.go || it.act ? 'cat' : 'item');
 const wire = it => ({ id: it.id, icon: it.icon, label: it.label, tip: it.tip, c: it.c, n: it.n || 0, on: it.on, stay: !!it.stay, kind: kindOf(it), mini: !!it.mini });
 let ov = null, ovReady = false, ovPending = null, curItems = [];
 function overlayWin() {
@@ -476,6 +477,7 @@ function closeMenu(after, instant) {
 function onMenuClick(id) {
   const it = curItems.find(x => x.id === id); if (!it) return;
   if (it.go) return switchLevel(menuLevel === it.go ? 'root' : it.go);
+  if (it.act) return closeMenu(() => send('action', { id })); // 第一层的直接动作（如「会议」）
   if (it.stay) { (SKILLS[id] || (() => send('action', { id })))(); curItems = menuItems(menuLevel); return sendOv({ type: 'update', items: curItems.map(wire) }); }
   menuOn = false;
   setTimeout(() => (SKILLS[id] ? SKILLS[id]() : send('action', { id })), 280);

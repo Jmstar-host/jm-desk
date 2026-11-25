@@ -142,8 +142,13 @@ async function pagePeers(body) {
     // 好友
     cards.push(h('div', { class: 'card' }, h('h3', {}, `我的好友 ${S.peers.length}`),
       ...(S.peers.length ? S.peers.map(p => h('div', { class: 'row peer' }, h('b', {}, p.name), h('span', { class: 'muted', title: '加好友时核对过的暗号' }, p.fp.join(' · ')),
-        h('select', { style: 'margin-left:auto', title: '它的精灵来串门时', onchange: e => inv('peer:set', p.id, { trust: e.target.value }) }, h('option', { value: 'ask', selected: p.trust !== 'trust' }, '每次问我'), h('option', { value: 'trust', selected: p.trust === 'trust' }, '完全信任')),
-        h('button', { class: 'ghost', onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认解除'; return; } await inv('peer:remove', p.id); draw(); } }, '解除')))
+        h('select', { style: 'margin-left:auto', title: '好友等级：普通好友只能搬你开放的需求池、待办；知识好友还能问你接入的知识库', onchange: e => inv('peer:set', p.id, { tier: e.target.value }) },
+          ...Object.entries(S.tiers || {}).map(([k, n]) => h('option', { value: k, selected: (p.tier === 'basic' ? 'basic' : 'knowledge') === k }, n))),
+        h('select', { title: '它的精灵来串门时', onchange: e => inv('peer:set', p.id, { trust: e.target.value }) }, h('option', { value: 'ask', selected: p.trust !== 'trust' }, '每次问我'), h('option', { value: 'trust', selected: p.trust === 'trust' }, '完全信任')),
+        h('button', { class: 'ghost', onclick: async e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认解除'; return; } await inv('peer:remove', p.id); draw(); } }, '解除'),
+        h('div', { class: 'folders' }, h('span', { class: 'muted' }, '开放的文件夹'),
+          ...(p.folders || []).map(f => h('span', { class: 'chip', title: f.path + '\n好友只能在里面按词找，拿到文件名和命中的几句，拿不到整份文件' }, '📁 ' + f.label, h('i', { class: 'x', title: '不再开放', onclick: async () => { await inv('peer:folder-remove', p.id, f.id); draw(); } }, '×'))),
+          h('button', { class: 'sm', title: '选一个只给这个好友看的文件夹', onclick: async ev => { try { await inv('peer:folder-add', p.id); draw(); } catch (err) { ev.target.after(h('span', { class: 'err' }, err.message)); } } }, '＋ 文件夹'))))
       : [h('div', { class: 'muted' }, '还没有好友：用下面的好友码和同事加好友。')])));
     // 加好友
     const P = S.pending, pair = h('div', { class: 'card' }, h('h3', {}, '加好友'));

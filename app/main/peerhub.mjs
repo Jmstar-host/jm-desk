@@ -38,7 +38,7 @@ export function createPeerHub(d) {
   async function serveCatalog(peer) {
     if (!d.catalog || Date.now() - (served.get(peer.id) || 0) < 3000) return;
     served.set(peer.id, Date.now());
-    let sections = []; try { sections = P.cleanCatalog(await d.catalog()); } catch {}
+    let sections = []; try { sections = P.cleanCatalog(await d.catalog(peer)); } catch {} // 目录按好友等级裁剪
     await send(peer, { type: 'catalog', at: new Date().toISOString(), sections }).catch(() => {});
   }
   const send = (peer, obj) => cli().send(me(), peer, obj);
@@ -56,7 +56,7 @@ export function createPeerHub(d) {
   async function confirm() {
     if (!pending?.peer) throw new Error('还没有等到对方');
     const p = pending.peer, list = peers().filter(x => x.box !== p.box);
-    const peer = { id: p.box.slice(0, 12), box: p.box, pub: p.pub, name: p.name, status: 'paired', trust: 'ask', fp: P.fingerprint(me().pub, p.pub), since: new Date().toISOString() };
+    const peer = { id: p.box.slice(0, 12), box: p.box, pub: p.pub, name: p.name, status: 'paired', trust: 'ask', tier: 'basic', fp: P.fingerprint(me().pub, p.pub), since: new Date().toISOString() };
     list.push(peer); savePeers(list); pending = null;
     await send(peer, { type: 'hello', name: d.myName(), look: d.myLook() }).catch(() => {});
     await send(peer, { type: 'catalog-req' }).catch(() => {}); // 成为好友就先要一份目录，之后搬运时直接选范围（对方还没点确认时收不到，见 hello）
@@ -66,6 +66,8 @@ export function createPeerHub(d) {
   function setPeer(id, patch) {
     const list = peers(), p = list.find(x => x.id === id); if (!p) throw new Error('没有这个好友');
     if (patch.trust) p.trust = patch.trust === 'trust' ? 'trust' : 'ask';
+    if (patch.tier) { p.tier = patch.tier === 'knowledge' ? 'knowledge' : 'basic'; served.delete(p.id); setTimeout(() => serveCatalog(p).catch?.(() => {}), 0); } // 等级变了，重新给对方一份目录
+    if (Array.isArray(patch.folders)) { p.folders = patch.folders.slice(0, 8).map(f => ({ id: clip(f.id, 20), path: String(f.path), label: clip(f.label, 30) })); served.delete(p.id); setTimeout(() => serveCatalog(p).catch?.(() => {}), 0); } // 只由 main.mjs 在核对过文件夹后传进来
     if (patch.name) p.alias = clip(patch.name, 20);
     savePeers(list); d.onUpdate(); return state();
   }
@@ -129,7 +131,7 @@ export function createPeerHub(d) {
     g.status = 'searching'; d.visitor.send(id, { type: 'search' });
     send(g.peer, { type: 'visit-ack', id, status: 'searching' }).catch(() => {});
     let r;
-    try { r = await d.search({ ask: g.ask, peer: name(g.peer), share: d.settings().peers?.share || { knowledge: true }, scope: g.scope }); }
+    try { r = await d.search({ ask: g.ask, peer: name(g.peer), share: P.shareFor(d.settings().peers?.share || { knowledge: true }, g.peer), scope: g.scope, peerId: g.peer.id }); }
     catch (e) { r = { error: e.message }; }
     g.status = 'gone';
     if (r?.answer) {
@@ -181,7 +183,7 @@ export function createPeerHub(d) {
   function state() {
     return {
       relay: d.relay(), me: { name: d.myName(), ready: !!d.getIdentity()?.pub }, share: d.settings().peers?.share || { knowledge: true },
-      peers: peers().map(p => ({ id: p.id, name: name(p), fp: p.fp, trust: p.trust, since: p.since, catalog: p.catalog || null })),
+      peers: peers().map(p => ({ id: p.id, name: name(p), fp: p.fp, trust: p.trust, tier: P.tierOf(p), folders: (p.folders || []).map(f => ({ id: f.id, label: f.label, path: f.path })), since: p.since, catalog: p.catalog || null })),
       pending: pending ? { role: pending.role, code: pending.code, expires: pending.expires, peer: pending.peer ? { name: pending.peer.name } : null, fp: pending.fp || null } : null,
       trips: [...trips.values()].map(t => ({ id: t.id, peer: name(t.peer), ask: t.ask, scope: t.scope || '', status: t.status, result: t.result || null })),
       guests: [...guests.values()].filter(g => g.status !== 'gone').map(g => ({ id: g.id, peer: name(g.peer), ask: g.ask, scope: g.scope?.label || '', status: g.status })),

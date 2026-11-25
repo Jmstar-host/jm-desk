@@ -10,6 +10,7 @@ export const CATALOG = {
   'skill.wave':     { kind: 'skill', icon: 'smile', label: '挥手', tip: '打个招呼' },
   /* 主窗口（1.3.0 起对话、工作台、线索合进一个窗口，左边切换） */
   'app.desk':       { kind: 'cmd', icon: 'chart', label: '主窗口', tip: '助手、工作台、线索都在这个窗口里' },
+  'app.meeting':    { kind: 'cmd', icon: 'quill', label: '会议纪要', tip: '用本机麦克风记录会议，结束后整理成摘要、决策、待办' },
   'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '和 AI 多轮对话：查资料、问知识库、调用平台办事、交给本机执行者' },
   'app.work':       { kind: 'cmd', icon: 'chart', label: '工作台', tip: '专项 › 项目 › 需求 › 待办，汇总线索、勾掉待办、对齐需求管理平台', count: 'tasks' },
   'app.clues':      { kind: 'cmd', icon: 'inbox', label: '线索', tip: '收到的邮件、飞书、纪要原文，信息源和搬运到需求管理平台' },
@@ -29,6 +30,7 @@ export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
     { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
+    { id: 'meet', label: '会议', icon: 'quill', color: ['#e11d48', '#ec4899'], tip: '记录会议，结束后整理纪要', action: 'app.meeting', items: [] },
     { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、搬运', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
     { id: 'mail', label: '邮箱', icon: 'mail', color: ['#3b82f6', '#8b5cf6'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
     { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], tip: '设置、提醒、精灵位置', items: ['app.settings', 'app.reminders', 'toggle.roam', 'place.corner'] },
@@ -59,8 +61,11 @@ export function migrateLayout(l) {
     }
     if (g.id === 'work' && /汇总|待办|需求池|知识/.test(g.tip || '')) { changed = true; return { ...g, tip: '助手、工作台、线索、搬运', items }; }
     return { ...g, items };
-  }).filter(g => g.items.length || (changed = true, false));
-  return { layout: { ...l, groups }, changed };
+  }).filter(g => g.items.length || g.action || (changed = true, false));
+  // 1.4.2：第一层加「会议」（直接打开会议纪要）。只加一次，用户删掉后不再加回来（seen 记着）
+  const seen = new Set(l.seen || []);
+  if (!seen.has('meet')) { seen.add('meet'); changed = true; if (groups.length < 6 && !groups.some(g => g.action === 'app.meeting' || g.items.includes('app.meeting') || g.id === 'meet')) groups.splice(Math.min(1, groups.length), 0, { ...DEFAULT_LAYOUT.groups.find(g => g.id === 'meet'), items: [] }); }
+  return { layout: { ...l, groups, seen: [...seen] }, changed };
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -89,16 +94,20 @@ export function validateLayout(l) {
     if (!label || [...label].length > 5) errors.push(`分组「${label || id}」名称需 1–5 个字`);
     const icon = ICONS.includes(g.icon) ? g.icon : 'magic';
     const color = (Array.isArray(g.color) && g.color.length === 2 && g.color.every(c => HEX.test(c)) ? g.color : [PALETTE.pink, PALETTE.blue]).map(snapColor);
-    const items = (Array.isArray(g.items) ? g.items : []).filter(x => {
+    // 第一层直接动作的分组（action）：点一下就执行，不展开第二层
+    const action = g.action && CATALOG[g.action]?.kind === 'cmd' && !used.has(g.action) ? g.action : null;
+    if (g.action && !action) errors.push(`分组「${g.label || id}」的动作不可用：${g.action}`);
+    if (action) used.add(action);
+    const items = action ? [] : (Array.isArray(g.items) ? g.items : []).filter(x => {
       if (!CATALOG[x]) { errors.push(`未知动作：${x}`); return false; }
       if (used.has(x)) { errors.push(`动作重复出现：${x}`); return false; }
       used.add(x); return true;
     });
     if (items.length > 8) errors.push(`分组「${label}」最多 8 个气泡`);
-    return { id, label, icon, color, tip: String(g.tip || '').slice(0, 30), items };
+    return { id, label, icon, color, tip: String(g.tip || '').slice(0, 30), ...(action ? { action } : {}), items };
   });
   if (!used.has('app.settings')) errors.push('必须保留「设置」气泡（app.settings），否则改不回来');
-  return { ok: errors.length === 0, errors, layout: { version: 1, groups } };
+  return { ok: errors.length === 0, errors, layout: { version: 1, groups, ...(Array.isArray(l.seen) ? { seen: l.seen.filter(x => typeof x === 'string').slice(0, 20) } : {}) } };
 }
 /* 给界面用：把动作 id 展开成完整气泡数据 */
 export function resolveLayout(l) {

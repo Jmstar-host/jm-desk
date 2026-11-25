@@ -12,7 +12,7 @@ test('旧布局迁移：待办 / 需求池 / 汇总并进工作台，问知识�
   const { layout, changed } = migrateLayout(old);
   assert.equal(changed, true);
   assert.deepEqual(layout.groups.map(g => [g.id, g.items]), [
-    ['work', ['app.work', 'app.agent', 'app.clues', 'app.peers']], ['mail', ['mail.open']], ['more', ['app.reminders', 'app.settings']]]);
+    ['work', ['app.work', 'app.agent', 'app.clues', 'app.peers']], ['meet', []], ['mail', ['mail.open']], ['more', ['app.reminders', 'app.settings']]]); // 1.4.2 第一层加了「会议」
   assert.equal(layout.groups[0].tip, '助手、工作台、线索、搬运');
   assert.equal(validateLayout(layout).ok, true);
   assert.equal(migrateLayout(layout).changed, false, '迁移过的不再动');
@@ -41,5 +41,5 @@ test('色板（1.3.1）：分组颜色对齐到粉 / 蓝 / 黑 + 紫绿橙红；
 
 test('旧默认分组颜色迁移成新色板的默认颜色', () => {
   const { layout, changed } = migrateLayout({ version: 1, groups: [{ id: 'work', label: '工作', icon: 'doc', color: ['#8b7cf6', '#60a5fa'], items: ['app.work', 'app.settings'] }, { id: 'x', label: '自定', icon: 'doc', color: ['#2dd4bf', '#a78bfa'], items: ['app.agent'] }] });
-  assert.equal(changed, true); assert.deepEqual(layout.groups[0].color, ['#ec4899', '#3b82f6']); assert.deepEqual(layout.groups[1].color, ['#17141f', '#3b82f6']);
+  assert.equal(changed, true); const g = id => layout.groups.find(x => x.id === id); assert.deepEqual(g('work').color, ['#ec4899', '#3b82f6']); assert.deepEqual(g('x').color, ['#17141f', '#3b82f6']);
 });

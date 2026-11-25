@@ -9,7 +9,8 @@
   const elapsed = () => M.startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(M.startedAt)) / 1000)) : 0;
   function show(on) { M.open = on; view.classList.toggle('hide', !on); $('#conv').classList.toggle('meeting', on); if (on) refresh(); }
   btn.onclick = () => show(!M.open || M.phase === 'recording' ? true : false);
-  async function refresh() { try { M.st = await call('meet:status'); if (M.st.active && M.phase === 'idle') { M.phase = 'recording'; M.startedAt = M.st.active.startedAt; M.lines = M.st.active.lines.map(text => ({ text })); } M.dl = M.st.download; } catch (e) { M.err = e.message; } draw(); }
+  async function refresh() { try { M.st = await call('meet:status'); if (M.st.open && !M.open) { M.open = true; view.classList.remove('hide'); $('#conv').classList.add('meeting'); }
+    if (M.st.active && M.phase === 'idle') { M.phase = 'recording'; M.startedAt = M.st.active.startedAt; M.lines = M.st.active.lines.map(text => ({ text })); } M.dl = M.st.download; } catch (e) { M.err = e.message; } draw(); }
   function tick() { clearInterval(M.timer); if (M.phase === 'recording') M.timer = setInterval(() => { const t = view.querySelector('.clock'); if (t) t.textContent = fmt(elapsed()); btn.querySelector('span').textContent = fmt(elapsed()); }, 1000); else btn.querySelector('span').textContent = '会议纪要'; btn.classList.toggle('on', M.phase === 'recording'); }
 
   const MISS = { platform: '会议纪要目前只支持 macOS', whisper: '没装转写引擎 whisper.cpp', ffmpeg: '没装录音工具 ffmpeg', model: '还没有转写模型' };
@@ -78,6 +79,7 @@
     else if (['transcribing', 'summarizing'].includes(s.phase) && M.phase !== 'done') M.phase = s.phase;
     draw();
   });
+  ipcRenderer.on('meet:open', () => show(true));
   ipcRenderer.on('meet:download', (_e, d) => { M.dl = d; if (d.done) refresh(); else draw(); });
   refresh();
 })();

@@ -24,6 +24,7 @@ import * as localMcp from './localmcp.mjs';
 import { createThreads } from './threads.mjs';
 import * as executors from './executors.mjs';
 import * as meeting from './meeting.mjs';
+import * as peerFiles from './peerfiles.mjs';
 import { Notification } from 'electron';
 
 const require = createRequire(import.meta.url);
@@ -242,13 +243,19 @@ const peerHub = createPeerHub({
     },
     send(id, m) { const w = visitors.get(id); if (w && !w.isDestroyed()) w.webContents.send('visitor', m); },
   },
-  catalog: () => peerCatalog(),
+  catalog: peer => peerCatalog(peer),
   /* B 这边：只用开放给好友的只读工具，用 B 自己的模型找，回答带依据。
    * 访客带了范围（1.2.0 起）：只在那一块里找——需求池、待办直接按词筛，不用模型；知识库只用那一个接入、指定平台，最多 4 步。 */
-  async search({ ask, peer, share, scope }) {
+  async search({ ask, peer, share, scope, peerId }) {
     if (scope) {
-      const hit = peers.findScope(await peerCatalog(), scope);
+      const who = peerRecord(peerId);
+      const hit = peers.findScope((await peerCatalog(who)).filter(sec => sec.kind !== 'knowledge' || share.knowledge), scope); // 普通好友找不到知识库这一块；文件夹只有开放给这个好友的
       if (!hit) throw new Error('这个范围现在没有开放');
+      if (hit.section.kind === 'files') {
+        const f = (who?.folders || []).find(x => 'f:' + x.id === hit.section.id); if (!f) throw new Error('这个文件夹现在没有开放');
+        const got = peerFiles.searchFolder(f.path, ask);
+        return got.length ? { answer: `文件夹「${f.label}」里和「${ask}」有关的 ${got.length} 个文件：\n${got.map(g => `- ${g.file}${g.snippet ? '：…' + g.snippet + '…' : ''}`).join('\n')}`, used: ['文件夹 ' + f.label] } : { answer: '', used: [] };
+      }
       if (hit.section.kind === 'requirements') {
         const groups = services.requirementPool().projects.filter(g => !hit.item || String(g.id) === hit.item.id);
         const rows = groups.flatMap(g => g.reqs.map(r => ({ title: r.title, line: `- 【${g.title}】${r.title}（${r.status === 'done' ? '已完成' : '进行中'}${r.deadline ? '，期望 ' + r.deadline : ''}）` })));
@@ -289,8 +296,14 @@ ipcMain.on('visitor:gone', (_e, id) => { const w = visitors.get(String(id)); if 
 ipcMain.on('visitor:landed', () => {});
 /* 我开放给好友的目录：由开放范围和已接入的知识库自动生成，缓存 10 分钟；改了开放范围就重算。只含名字，不含内容 */
 let peerCat = null; // { at, key, sections }
-async function peerCatalog() {
-  const share = settings().peers?.share || { knowledge: true }, key = JSON.stringify(share);
+const peerRecord = id => id ? (store.read('peers.json', []) || []).find(p => p.id === id) || null : null;
+/* 某个好友的文件夹：开放给他的才在他的目录里 */
+const folderSections = peer => (peerRecord(peer?.id)?.folders || []).map(f => ({ id: 'f:' + f.id, kind: 'files', name: '文件夹 · ' + f.label, items: [] }));
+async function peerCatalog(peer = null) {
+  return peers.cleanCatalog([...(await baseCatalog(peer)), ...folderSections(peer)]);
+}
+async function baseCatalog(peer) {
+  const share = peer ? peers.shareFor(settings().peers?.share || { knowledge: true }, peer) : settings().peers?.share || { knowledge: true }, key = JSON.stringify(share);
   if (peerCat && peerCat.key === key && Date.now() - peerCat.at < 10 * 60e3) return peerCat.sections;
   const sections = [];
   if (share.knowledge) {
@@ -308,7 +321,16 @@ async function peerCatalog() {
   return peerCat.sections;
 }
 ipcMain.handle('peer:my-catalog', safe(() => peerCatalog()));
-ipcMain.handle('peer:state', () => ({ ...peerHub.state(), presetRelay: !!presetRelay(), relaySetting: settings().peers?.relay || '', scopes: peers.SCOPES }));
+/* 给某个好友开放一个本机文件夹：系统选文件夹对话框（允许的例外），核对不是主目录 / 系统目录，好友只能在里面按词找、拿到文件名和片段 */
+ipcMain.handle('peer:folder-add', safe(async (e, id) => {
+  const p = peerRecord(id); if (!p) throw new Error('没有这个好友');
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender) || undefined, { title: `选一个开放给「${p.alias || p.name}」的文件夹`, properties: ['openDirectory'] });
+  if (r.canceled) return peerHub.state();
+  const f = peerFiles.folderEntry(r.filePaths[0]), list = (p.folders || []).filter(x => x.id !== f.id);
+  return peerHub.setPeer(id, { folders: [...list, f] });
+}));
+ipcMain.handle('peer:folder-remove', safe((_e, id, fid) => { const p = peerRecord(id); if (!p) throw new Error('没有这个好友'); return peerHub.setPeer(id, { folders: (p.folders || []).filter(x => x.id !== fid) }); }));
+ipcMain.handle('peer:state', () => ({ ...peerHub.state(), tiers: peers.TIERS, presetRelay: !!presetRelay(), relaySetting: settings().peers?.relay || '', scopes: peers.SCOPES }));
 ipcMain.handle('peer:config', safe((_e, c) => {
   const s = settings(); s.peers ||= {};
   if ('relay' in c) { const r = String(c.relay || '').trim(); if (r && !peers.relayUrl(r)) throw new Error('中转地址必须是 https（本机测试可以用 http://127.0.0.1）'); s.peers.relay = r; }
@@ -317,7 +339,8 @@ ipcMain.handle('peer:config', safe((_e, c) => {
   store.write('settings.json', s); peerHub.ensureLoop(); return true;
 }));
 for (const [ch, fn] of Object.entries({ offer: () => peerHub.offer(), claim: (c) => peerHub.claim(c), confirm: () => peerHub.confirm(), cancel: () => peerHub.cancelPair(),
-  set: (id, p) => peerHub.setPeer(id, p || {}), remove: id => peerHub.removePeer(id), visit: (id, ask, scope) => peerHub.visit(id, ask, scope), decide: (id, ok) => peerHub.decide(id, ok), catalog: (id, force) => peerHub.askCatalog(id, { force: !!force }) }))
+  // set 去掉 folders：文件夹只能走 peer:folder-add（要核对路径）
+  set: (id, p) => peerHub.setPeer(id, { ...(p || {}), folders: undefined }), remove: id => peerHub.removePeer(id), visit: (id, ask, scope) => peerHub.visit(id, ask, scope), decide: (id, ok) => peerHub.decide(id, ok), catalog: (id, force) => peerHub.askCatalog(id, { force: !!force }) }))
   ipcMain.handle('peer:' + ch, safe((_e, ...a) => fn(...a)));
 /* 内置工具：不用任何配置，助手就能查和整理 JM Desk 自己的线索、待办、需求池 */
 let toolActorNow = 'assistant'; // 本机 AI 调用时临时改成 local-ai，写进工作的 history
@@ -517,6 +540,7 @@ function runAction(id) {
   if (id === 'app.desk') return openDesk(null);
   if (id === 'app.work') return openDesk('work');
   if (id === 'app.agent') return openDesk('chat');
+  if (id === 'app.meeting') { meetOpenPending = true; openDesk('chat'); deskViews.chat?.webContents.send('meet:open'); return; }
   if (id === 'app.clues') return openDesk('list');
   if (id === 'mail.compose') return shell.openExternal('mailto:');
   if (id === 'mail.open') {
@@ -622,10 +646,10 @@ ipcMain.handle('work:new', safe((_e, o) => services.newDraft(o || {})));
 ipcMain.handle('work:scope', safe(() => services.scopeIds({ fresh: true })));
 ipcMain.handle('work:evidence', safe((_e, id, f) => services.setEvidence(String(id), f)));
 /* ---------- 会议纪要（meeting.mjs）：本机 whisper，结果进线索池 ---------- */
-let meet = null, meetDl = null;
+let meet = null, meetDl = null, meetOpenPending = false;
 const meetSend = (ch, v) => { for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(ch, v); for (const v2 of Object.values(deskViews)) if (!v2.webContents.isDestroyed()) v2.webContents.send(ch, v); };
 const meetObj = () => meet || (meet = meeting.createMeeting({ dataDir: store.dir, onLive: l => meetSend('meet:live', l), onState: s => meetSend('meet:state', s) }));
-ipcMain.handle('meet:status', safe(() => ({ ...meeting.status(store.dir), active: meet?.active || null, download: meetDl })));
+ipcMain.handle('meet:status', safe(() => { const open = meetOpenPending; meetOpenPending = false; return { ...meeting.status(store.dir), active: meet?.active || null, download: meetDl, open }; }));
 ipcMain.handle('meet:start', safe(async (_e, o) => { const r = await meetObj().start(o || {}); sayToSprite('🎙 正在记录会议', '在助手里点「结束」后整理纪要'); return r; }));
 ipcMain.handle('meet:cancel', safe(() => { meet?.cancel(); return true; }));
 ipcMain.handle('meet:stop', safe(async () => {

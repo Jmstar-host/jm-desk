@@ -23,6 +23,7 @@
 ] }
 ```
 
+- 分组可以写 `action`（一个 `cmd` 类动作，如 `app.meeting`）而不写 `items`：第一层点一下直接执行，不展开第二层（1.4.2，默认的「会议」就是这样）。布局里的 `seen` 记着迁移时加过的默认分组，用户删掉后不再加回来。
 - `groups` 是内圈分组，1–6 个；`items` 是点开分组后外圈的气泡，每组最多 8 个，每个动作最多出现一次。**必须保留 `app.settings`**，否则用户改不回来。
 - `label` 1–5 个字；`id` 用小写英文；`color` 是两个 `#rrggbb`，只能用色板里的颜色（其他颜色会被对齐到最近的一种，见界面约定）。
 - `icon` 只能从这些里选：`magic mail sliders portal burst orbit dash heart loop smile doc check chart inbox quill box wing moon pin corner bell`
@@ -32,6 +33,7 @@
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
 | `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的三个页面）、主窗口（上次看的页面） | 命令 |
+| `app.meeting` | 会议纪要（打开助手里的会议纪要） | 命令 |
 | `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
 | `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` | 邮箱 写邮件 未读 | 邮箱（调起本机邮件客户端） |
@@ -100,6 +102,8 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   2. B 回 `visit-ack`，状态为 `arrived` 或 `searching`。
   3. B 回 `visit-result` 或 `visit-denied`。
   - 4 分钟内没有结果，A 的精灵空手回来。B 这边 3 分钟没人点，自动婉拒。同一时间只接待一个访客。
+- **好友分级**（1.4.2，`peers.mjs` 的 `TIERS` / `tierOf` / `shareFor`）：`basic` 普通好友只能搬需求池、待办里你开放的部分；`knowledge` 知识好友另外能问你接入的知识库。新加的好友默认普通；1.4.2 之前加的按知识好友算。目录（`peerCatalog(peer)`）和接待时的检索范围都按等级裁剪。
+- **给某个好友开放的文件夹**（1.4.2，`app/main/peerfiles.mjs`，存在 `peers.json` 该好友的 `folders`）：「搬运」页每个好友一行「＋ 文件夹」，系统选文件夹对话框选；不能是主目录、磁盘根、系统目录。好友的目录里多一节 `kind: 'files'`，只能在里面按词找（不用模型），回「文件名 + 命中的一句」，不发整份文件；只看文本类文件，跳过隐藏文件、符号链接、node_modules，数量和大小有上限。`peer:set` 不接受 `folders`，只能走 `peer:folder-add`（主进程核对路径）。
 - **B 的权限**：B 只用 `peers.scopeTools(catalog, settings.peers.share)` 筛出来的**只读**工具，用 B 自己的模型去找。可开放的范围是 `knowledge`（标了 `knowledge: true` 的接入）、`requirements`、`todos`；邮件、聊天和线索原文永远不开放。
 - **中转地址**：优先用 `settings.peers.relay`，其次用预置文件的 `relay` 字段。开源版为空。
 

@@ -75,6 +75,12 @@ export function unpack(me, messages, peers, pending = []) {
 }
 
 /* 访客能看的范围 → 允许调用的工具：只读，邮件和聊天原文永远不开放 */
+/* 好友分级：basic 普通好友（只能搬需求池、待办里你开放的部分）；knowledge 知识好友（另外还能问你接入的知识库）。
+ * 1.4.2 之前加的好友没有分级，按 knowledge 算（保持原来能做的事）；之后新加的默认 basic */
+export const TIERS = { basic: '普通好友', knowledge: '知识好友（可问我的知识库）' };
+export const tierOf = peer => (peer?.tier === 'basic' ? 'basic' : 'knowledge');
+/** 对某个好友实际开放的范围 = 我的开放范围 ∩ 好友的等级 */
+export function shareFor(share = {}, peer) { return { ...share, knowledge: !!share.knowledge && tierOf(peer) === 'knowledge' }; }
 export const SCOPES = { knowledge: '知识问答（我接入的知识库）', requirements: '需求池（项目和需求标题）', todos: '待办（只看标题和状态）' };
 export function scopeTools(tools, share = {}) {
   return tools.filter(t => {
@@ -94,7 +100,7 @@ export function scopeTools(tools, share = {}) {
 const clipS = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 export function cleanCatalog(sections) {
   return (Array.isArray(sections) ? sections : []).slice(0, 12).map(s => ({
-    id: clipS(s?.id, 60), kind: ['knowledge', 'requirements', 'todos'].includes(s?.kind) ? s.kind : 'knowledge', name: clipS(s?.name, 30) || '知识库',
+    id: clipS(s?.id, 60), kind: ['knowledge', 'requirements', 'todos', 'files'].includes(s?.kind) ? s.kind : 'knowledge', name: clipS(s?.name, 30) || '知识库',
     items: (Array.isArray(s?.items) ? s.items : []).slice(0, 120).map(i => ({ id: clipS(i?.id, 80), label: clipS(i?.label, 40) || clipS(i?.id, 40), ...(i?.note ? { note: clipS(i.note, 40) } : {}) })).filter(i => i.id),
   })).filter(s => /^[A-Za-z0-9:_.-]{1,60}$/.test(s.id));
 }
