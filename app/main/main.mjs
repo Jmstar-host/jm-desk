@@ -661,14 +661,15 @@ ipcMain.handle('meet:stop', safe(async () => {
 }));
 ipcMain.handle('meet:to-work', safe(async () => { const r = await services.summarizeMeetings(); pushCounts(); return r; }));
 /* 下载转写模型到 DATA/models（约 488 MB，国内镜像）。下载中再点只返回进度 */
+/* 下载转写模型到 DATA/models（large-v3-turbo q5，约 574 MB，国内镜像）。下载中再点只返回进度 */
 ipcMain.handle('meet:download', safe(async () => {
   if (meetDl?.running) return meetDl;
-  const dir = path.join(store.dir, 'models'); fs.mkdirSync(dir, { recursive: true }); const dst = path.join(dir, 'ggml-small.bin'), tmp = dst + '.part';
+  const dir = path.join(store.dir, 'models'); fs.mkdirSync(dir, { recursive: true }); const dst = path.join(dir, meeting.MODEL_FILE), tmp = dst + '.part';
   meetDl = { running: true, got: 0, total: 0 };
   (async () => {
     try {
       const res = await net.fetch(meeting.MODEL_URL); if (!res.ok) throw new Error('下载失败：HTTP ' + res.status);
-      meetDl.total = Number(res.headers.get('content-length')) || 487601967;
+      meetDl.total = Number(res.headers.get('content-length')) || meeting.MODEL_SIZE;
       const out = fs.createWriteStream(tmp); const rd = res.body.getReader(); let last = 0;
       for (;;) { const { done, value } = await rd.read(); if (done) break; out.write(Buffer.from(value)); meetDl.got += value.length; if (Date.now() - last > 500) { last = Date.now(); meetSend('meet:download', meetDl); } }
       await new Promise(r => out.end(r)); if (fs.statSync(tmp).size < 50e6) throw new Error('下载的文件不完整');

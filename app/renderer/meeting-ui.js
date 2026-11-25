@@ -18,8 +18,8 @@
     const miss = M.st?.missing || [];
     const cmd = miss.some(k => k === 'whisper' || k === 'ffmpeg') ? h('div', { class: 'cmd' }, h('code', {}, M.st.install), h('button', { class: 'sm', onclick: e => { require('electron').clipboard.writeText(M.st.install); e.target.textContent = '已复制'; } }, '复制')) : null;
     const dl = M.dl, model = miss.includes('model') ? h('div', { class: 'cmd' },
-      dl?.running ? h('div', { class: 'bar' }, h('i', { style: `width:${dl.total ? Math.round(dl.got / dl.total * 100) : 2}%` }), h('span', {}, `下载中 ${Math.round(dl.got / 1048576)} / ${Math.round((dl.total || 487e6) / 1048576)} MB`))
-        : h('button', { class: 'pri', onclick: async () => { try { M.dl = await call('meet:download'); draw(); } catch (e) { M.err = e.message; draw(); } } }, '下载转写模型（约 480 MB）'),
+      dl?.running ? h('div', { class: 'bar' }, h('i', { style: `width:${dl.total ? Math.round(dl.got / dl.total * 100) : 2}%` }), h('span', {}, `下载中 ${Math.round(dl.got / 1048576)} / ${Math.round((dl.total || 574e6) / 1048576)} MB`))
+        : h('button', { class: 'pri', onclick: async () => { try { M.dl = await call('meet:download'); draw(); } catch (e) { M.err = e.message; draw(); } } }, '下载转写模型（约 570 MB）'),
       dl?.error ? h('div', { class: 'err' }, dl.error) : null) : null;
     return h('div', { class: 'mcard' }, h('h3', {}, '先准备一下'), h('p', { class: 'muted' }, '会议纪要用本机的 whisper 转写：免费、不限时长，音频只在本机，转完就删。'),
       h('ul', { class: 'miss' }, ...miss.map(k => h('li', {}, MISS[k] || k))), cmd ? h('p', { class: 'muted' }, '在「终端」里运行下面这条命令安装：') : null, cmd, model,
@@ -38,7 +38,7 @@
       topic, h('div', { class: 'row c' }, go), M.err ? h('div', { class: 'err' }, M.err) : null);
   }
   function recording() {
-    const cap = h('div', { class: 'caps' }, ...(M.lines.length ? M.lines.slice(-80).map(l => h('p', {}, l.text)) : [h('p', { class: 'muted' }, '在听……开始说话后字幕会出现在这里（实时字幕只是参考，结束后会整段重新转写）')]));
+    const cap = h('div', { class: 'caps' }, ...(M.lines.length ? M.lines.slice(-80).map(l => h('p', {}, l.text)) : [h('p', { class: 'muted' }, '在听……开始说话后字幕会出现在这里（实时字幕只是参考，结束后会整段重新转写）')]), h('p', { class: 'draft' }, M.draft || ''));
     setTimeout(() => { cap.scrollTop = cap.scrollHeight; });
     return h('div', { class: 'mcard wide' }, h('div', { class: 'rechd' }, h('i', { class: 'rec live' }), h('b', { class: 'clock' }, fmt(elapsed())), h('span', { class: 'muted grow' }, M.mic ? `麦克风：${M.mic}` : ''),
       h('button', { class: 'ghost', onclick: async () => { if (!confirm2()) return; await call('meet:cancel').catch(() => null); M.phase = 'idle'; draw(); } }, '放弃'),
@@ -72,7 +72,12 @@
     const body = !M.st ? h('div', { class: 'loading' }, h('i'), h('i'), h('i')) : M.phase === 'recording' ? recording() : M.phase === 'transcribing' || M.phase === 'summarizing' ? working() : M.phase === 'done' ? done() : M.st.ok ? idle() : setup();
     view.replaceChildren(h('div', { class: 'mtop' }, close), body);
   }
-  ipcRenderer.on('meet:live', (_e, l) => { M.lines.push(l); if (M.lines.length > 400) M.lines.splice(0, 100); if (M.open && M.phase === 'recording') { const c = view.querySelector('.caps'); if (c) { if (c.querySelector('.muted')) c.replaceChildren(); c.append(h('p', {}, l.text)); c.scrollTop = c.scrollHeight; } } });
+  /* 实时字幕：final = 一句说完（追加）；否则是正在说的这句（原地更新，模型会边听边改） */
+  ipcRenderer.on('meet:live', (_e, l) => {
+    if (l.final) { M.lines.push(l); M.draft = ''; if (M.lines.length > 400) M.lines.splice(0, 100); } else M.draft = l.text;
+    if (!(M.open && M.phase === 'recording')) return; const c = view.querySelector('.caps'); if (!c) return;
+    const d = c.querySelector('.draft'); if (l.final) { c.querySelector('p.muted')?.remove(); d.before(h('p', {}, l.text)); } d.textContent = M.draft; c.scrollTop = c.scrollHeight;
+  });
   ipcRenderer.on('meet:state', (_e, s) => {
     if (s.phase === 'error') { M.err = s.error; draw(); return; }
     if (s.phase === 'recording' && M.phase !== 'recording') { M.phase = 'recording'; M.startedAt = s.startedAt; M.mic = s.mic; M.lines = []; }

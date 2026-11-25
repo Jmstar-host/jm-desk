@@ -10,12 +10,20 @@ import crypto from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 
 const BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin'];
-const MODEL_NAMES = ['ggml-small.bin', 'ggml-large-v3-turbo-q5_0.bin', 'ggml-medium.bin', 'ggml-base.bin'];
-export const MODEL_URL = 'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-small.bin'; // 国内可直连的镜像；约 488 MB
+const MODEL_NAMES = ['ggml-large-v3-turbo-q5_0.bin', 'ggml-large-v3-turbo.bin', 'ggml-medium.bin', 'ggml-small.bin', 'ggml-base.bin']; // 准的优先（和 DSH NEXT 一样默认 large-v3-turbo）
+export const MODEL_FILE = 'ggml-large-v3-turbo-q5_0.bin', MODEL_SIZE = 574041195;
+export const MODEL_URL = 'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/' + MODEL_FILE; // 国内可直连的镜像；约 574 MB
 const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
 const NOISE = /\[(?:BLANK_AUDIO|Start speaking|Stop speaking|SPEAKER_TURN|Music|Applause|音乐|掌声)\]|\((?:音乐|掌声|笑声)\)/gi;
-const HALLU = /^(?:谢谢|感谢)(?:大家|您的)?(?:的)?(?:观看|收看)[。.!！]?$|^字幕由.+提供[。.!！]?$|^请不吝点赞.*$/;
-const PROMPT = '以下是中文会议逐字稿，内容涉及产品需求、项目排期、平台、接口、版本。请按普通话原意转写，加标点。';
+/* 静音或噪声时 whisper 常编出的句子（训练数据里视频片尾的字幕署名、频道宣传）：整行丢掉 */
+const HALLU = /^(?:谢谢|感谢)(?:大家|您的|你的)?(?:的)?(?:观看|收看|收听)[。.!！]?$|^字幕.{0,12}(?:提供|制作|志愿者|校对|翻译).*$|^.{0,8}字幕(?:志愿者|组).*$|^(?:请)?不吝点赞.*$|^.*(?:点赞|订阅|转发|打赏).*(?:点赞|订阅|转发|打赏|栏目).*$|^明镜.*$|^中文字幕.*$|^(?:by|字幕)\s*[:：].*$/i;
+const FILLER = /^(?:嗯+|呃+|额+|啊+|哦+|噢+|好+|好的|ok+|okay|uh+|um+|hmm+)$/i;
+/* 繁体 → 简体：whisper 的实时字幕没法给提示词，常出繁体。这里只换最常见的字，正式逐字稿靠整段转写时的简体提示词 */
+const T2S = Object.fromEntries([...'說说會会帶带給给歡欢這这們们個个來来對对時时為为後后裡里還还沒没麼么過过進进開开關关頭头長长問问題题經经發发現现實实點点請请謝谢讓让從从東东車车學学員员號号機机電电話话檔档資资料料單单價价錢钱買买賣卖貨货務务員员產产業业線线網网際际據据錄录聽听說说讀读寫写認认識识覺觉應应該该當当們们愛爱裡里邊边樣样無无與与專专業业項项計计劃划則则數数據据庫库統统體体處处範范圍围權权限限報报導导術术標标準准確确測测試试環环節节設设備备驗验證证圖图層层級级總总結结'].map((c, i, a) => i % 2 ? null : [c, a[i + 1]]).filter(Boolean));
+export const toSimplified = t => String(t || '').replace(/[\u4e00-\u9fff]/g, c => T2S[c] || c);
+/* 一句里同一段话连说两遍（滚动窗口的重叠）只留一遍 */
+const dedupeRun = t => t.replace(/(.{4,}?)\1+/g, '$1');
+const PROMPT = '以下是简体中文会议逐字稿，内容涉及产品需求、项目排期、平台、接口、版本。请按普通话原意转写，用简体字，加标点。';
 
 export function findBin(name) {
   for (const d of [...(process.env.PATH || '').split(path.delimiter), ...BIN_DIRS]) {
@@ -52,14 +60,34 @@ function micIndex(ffmpeg) {
     res(pick ? pick : { i: 0, name: '默认输入' });
   }));
 }
-export const cleanLine = s => String(s || '').replace(ANSI, '').replace(NOISE, '').replace(/^\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*/, '').replace(/\s+/g, ' ').trim();
+export const cleanLine = s => dedupeRun(toSimplified(String(s || '').replace(ANSI, '').replace(NOISE, '').replace(/^\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*/, '').replace(/\s+/g, ' ').trim()));
+const keep = t => !!t && !HALLU.test(t) && !FILLER.test(t.replace(/[\s，。！？、,.!?;；~～]+/g, '')) && /[\p{L}\p{N}]/u.test(t);
 /** whisper-cli 的输出 → 逐字稿：去掉时间戳、噪声标记、片尾幻觉句，合并成段 */
 export function cleanTranscript(raw) {
-  const lines = String(raw || '').split('\n').map(cleanLine).filter(l => l && !HALLU.test(l));
+  const lines = String(raw || '').split('\n').map(cleanLine).filter(keep);
+  // 整段几乎都是同一句（静音时的幻听）：当作没有内容
+  if (lines.length >= 8) { const n = new Map(); for (const l of lines) n.set(l, (n.get(l) || 0) + 1); const top = Math.max(...n.values()); if (top >= 4 && top / lines.length >= 0.35) return ''; }
   const out = []; for (const l of lines) if (out.at(-1) !== l) out.push(l); // 连续重复的句子只留一条
   return out.join('\n');
 }
 
+/** whisper-stream 的输出 → 实时字幕。同一行用 \r 原地修订，说完一句才换行：换行时把这一行最后一次修订当成定稿（final），
+ *  没换行的部分是正在说的这句（final:false，界面原地更新）。会议结束后（m.stopping）再来的输出直接丢掉。 */
+export function liveParser(m, onLive) {
+  let buf = '', lastDraft = '';
+  const lastOf = seg => cleanLine(seg.split('\r').filter(x => x.replace(ANSI, '').trim()).at(-1) || '');
+  return d => {
+    if (m.stopping) return; // 1.4.2 在这里崩过：结束后 whisper-stream 还会吐几行
+    buf += d.toString(); const parts = buf.split('\n'); buf = parts.pop();
+    for (const p of parts) {
+      if (/^\s*###/.test(p)) continue; const t = lastOf(p);
+      if (keep(t) && t !== m.lines.at(-1) && !(m.lines.at(-1) || '').endsWith(t)) { m.lines.push(t); onLive({ text: t, final: true, at: Date.now() - m.t0 }); }
+      lastDraft = '';
+    }
+    const draft = lastOf(buf);
+    if (draft !== lastDraft) { lastDraft = draft; onLive({ text: keep(draft) ? draft : '', final: false, at: Date.now() - m.t0 }); }
+  };
+}
 /** 一场会议：start → 实时字幕（onLive）→ stop → 整段转写 → 交回逐字稿。同一时间只开一场 */
 export function createMeeting({ dataDir, onLive = () => {}, onState = () => {} }) {
   let cur = null;
@@ -71,15 +99,15 @@ export function createMeeting({ dataDir, onLive = () => {}, onState = () => {} }
     const st = status(dataDir); if (!st.ok) throw Object.assign(new Error('会议纪要还缺：' + st.missing.join('、')), { missing: st.missing });
     const mic = await micIndex(st.bins.ffmpeg), id = crypto.randomBytes(6).toString('hex'), wav = path.join(tmpDir, `rec-${id}.wav`);
     const rec = spawn(st.bins.ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation', '-i', `:${mic.i}`, '-ar', '16000', '-ac', '1', '-f', 'wav', wav], { stdio: ['pipe', 'ignore', 'pipe'] });
-    const live = spawn(st.bins.stream, ['-m', st.modelPath, '-l', 'zh', '--capture', String(mic.i), '--step', '3000', '--length', '3000', '--keep', '300', '--max-tokens', '96', '--vad-thold', '0.6'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    // 实时字幕：每 2 秒把最近 8 秒重新转一遍（同一行原地改），一行说完才换行。参数和 DSH NEXT 一样
+    const live = spawn(st.bins.stream, ['-m', st.modelPath, '-l', 'zh', '--capture', String(mic.i), '--step', '2000', '--length', '8000', '--keep', '600', '--keep-context', '--no-fallback',
+      '--max-tokens', '96', '--vad-thold', '0.6', '--freq-thold', '100', '-t', String(Math.max(2, Math.min(6, os.cpus().length - 2)))], { stdio: ['ignore', 'pipe', 'pipe'] });
     cur = { id, topic: String(topic || '').trim().slice(0, 60), startedAt: new Date().toISOString(), t0: Date.now(), wav, rec, live, mic: mic.name, lines: [], model: st.modelPath, cli: st.bins.cli, recErr: '' };
-    let buf = '';
-    live.stdout.on('data', d => {
-      buf += d.toString(); const parts = buf.split(/\r|\n/); buf = parts.pop();
-      for (const p of parts) { if (/^###/.test(p.trim())) continue; const t = cleanLine(p); if (t && !HALLU.test(t) && t !== cur?.lines.at(-1)) { cur.lines.push(t); onLive({ text: t, at: Date.now() - cur.t0 }); } }
-    });
-    rec.stderr.on('data', d => { if (cur) cur.recErr += d.toString().slice(0, 400); });
-    rec.on('exit', code => { if (cur && !cur.stopping && code) { onState({ phase: 'error', error: '录音停了：' + (cur.recErr || `ffmpeg 退出 ${code}`).slice(0, 200) }); } });
+    const m = cur;
+    live.stdout.on('data', liveParser(m, onLive));
+    rec.stderr.on('data', d => { m.recErr += d.toString().slice(0, 400); });
+    rec.on('exit', code => { if (!m.stopping && code) onState({ phase: 'error', error: '录音停了：' + (m.recErr || `ffmpeg 退出 ${code}`).slice(0, 200) }); });
+    live.on('exit', code => { if (!m.stopping && code) onState({ phase: 'error', error: '实时字幕停了（录音还在继续，结束后照常整段转写）' }); });
     onState({ phase: 'recording', id, topic: cur.topic, mic: mic.name, startedAt: cur.startedAt, model: path.basename(st.modelPath) });
     return { id, mic: mic.name, startedAt: cur.startedAt };
   }
@@ -97,12 +125,13 @@ export function createMeeting({ dataDir, onLive = () => {}, onState = () => {} }
     try {
       if (!fs.existsSync(m.wav) || fs.statSync(m.wav).size < 32000) throw new Error('没有录到声音（检查「系统设置 › 隐私与安全性 › 麦克风」里是否允许了 JM Desk）');
       transcript = await new Promise((res, rej) => {
-        const p = spawn(m.cli, ['-m', m.model, '-l', 'zh', '-f', m.wav, '-nt', '--prompt', PROMPT, '-t', String(Math.max(2, Math.min(8, os.cpus().length - 1)))], { stdio: ['ignore', 'pipe', 'pipe'] });
+        // 正式逐字稿：整段音频、完整上下文、beam search、简体提示词、抑制非语音 token（和 DSH NEXT 的 final pass 一样）
+        const p = spawn(m.cli, ['-m', m.model, '-l', 'zh', '-f', m.wav, '-nt', '--prompt', PROMPT, '--carry-initial-prompt', '--beam-size', '5', '--best-of', '5', '--suppress-nst', '-t', String(Math.max(2, Math.min(8, os.cpus().length - 1)))], { stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '', err = ''; p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { err = (err + d).slice(-2000); });
         p.on('error', rej); p.on('exit', code => code === 0 ? res(cleanTranscript(out)) : rej(new Error('整段转写失败：' + err.split('\n').filter(Boolean).slice(-2).join(' ').slice(0, 200))));
       });
     } finally { try { fs.unlinkSync(m.wav); } catch {} } // 音频转完即删
-    if (!transcript) transcript = m.lines.join('\n'); // 整段转写没出字时退回实时字幕
+    if (!transcript && m.lines.length >= 3) transcript = cleanTranscript(m.lines.join('\n')); // 整段转写没出字时退回实时字幕（太少就当没内容）
     return { id: m.id, topic: m.topic, startedAt: m.startedAt, durationSec, transcript, mic: m.mic };
   }
   function cancel() { if (!cur) return; const m = cur; cur = null; m.stopping = true; try { m.live.kill('SIGKILL'); m.rec.kill('SIGKILL'); } catch {} setTimeout(() => { try { fs.unlinkSync(m.wav); } catch {} }, 500); onState({ phase: 'idle' }); }

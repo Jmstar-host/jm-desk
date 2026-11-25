@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as wm from '../app/main/workmodel.mjs';
-import { cleanTranscript, meetingSignal, buildMinutesPrompt } from '../app/main/meeting.mjs';
+import { cleanTranscript, meetingSignal, buildMinutesPrompt, liveParser, toSimplified } from '../app/main/meeting.mjs';
 
 const sources = [{ id: 's1', sourceLabel: '飞书', title: 'IoT 对接群', at: '2026-11-18T10:00:00Z' }];
 test('录入需求：描述里带每个字段的依据（摘录 + 出处），人工补充的写明，不带线索全文', () => {
@@ -41,4 +41,16 @@ test('依据来自知识库：描述里写「知识库《…》」，证据链�
   const c = wm.evidenceChain(work[0], [], work);
   assert.equal(c[0].state, 'done'); assert.match(c[0].note, /知识库/); assert.match(c[2].items[0].text, /知识库《IoT 充值接口说明》/);
   assert.match(wm.buildFillPrompt({ level: 'requirement', products: [] }), /知识库编号（如 K1）[\s\S]*/);
+});
+
+test('会议纪要实时字幕：原地修订只出一句定稿；繁体转简体；静音幻听丢掉；结束后再来的输出不处理（1.4.2 崩溃）', () => {
+  const m = { lines: [], t0: Date.now(), stopping: false }, got = [], feed = liveParser(m, l => got.push(l));
+  feed('\x1b[2K\r你不要\x1b[2K\r你不要再說了'); feed('\x1b[2K\r你不要再說了，我會把你帶走的\n');
+  feed('\x1b[2K\r字幕志愿者 杨栋梁\n'); feed('[BLANK_AUDIO]\n'); feed('### Transcription 3 START\n');
+  feed('我一定会做到的我一定会做到的\n');
+  assert.deepEqual(m.lines, ['你不要再说了，我会把你带走的', '我一定会做到的']);
+  assert.equal(got.filter(l => l.final).length, 2); assert.ok(got.some(l => !l.final && l.text === '你不要再说了'), '没说完的句子作为草稿原地更新');
+  m.stopping = true; assert.doesNotThrow(() => feed('还有一句\n')); assert.equal(m.lines.length, 2);
+  assert.equal(toSimplified('需求還沒確認'), '需求还没确认');
+  assert.equal(cleanTranscript('字幕志愿者 杨栋梁\n嗯嗯\n请不吝点赞 订阅 转发 打赏支持明镜与点点栏目'), '');
 });
