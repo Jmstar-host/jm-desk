@@ -49,7 +49,7 @@ export async function handleMessage(msg, { getTools, confirm, serverName = 'JM D
     const tool = getTools().find(t => t.name === name);
     if (!tool) return rpcError(id, -32602, `没有这个工具：${name}`);
     for (const k of tool.inputSchema?.required || []) if (args[k] === undefined || args[k] === null || args[k] === '') return rpcResult(id, toolError(`缺少参数：${k}`));
-    if (tool.write && !(await confirm({ tool: tool.name, title: tool.title || tool.name, args }))) {
+    if (tool.write && !tool.staged && !(await confirm({ tool: tool.name, title: tool.title || tool.name, args }))) {
       onCall({ tool: tool.name, write: true, ok: false, denied: true });
       return rpcResult(id, toolError('用户在 JM Desk 里没有允许这次操作'));
     }

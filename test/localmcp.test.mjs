@@ -60,3 +60,16 @@ test('令牌、Host、Origin 不对一律拒绝', async () => {
 test('客户端配置', () => {
   assert.deepEqual(clientConfig('http://127.0.0.1:1/mcp', 't'), { mcpServers: { 'jm-desk': { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer t' } } } });
 });
+
+test('只提交到 JM Desk 的写工具（staged，像 git 提交）不弹确认；真正写平台的仍要确认', async () => {
+  let asked = 0, ran = 0;
+  const tools = [...TOOLS, { name: 'update_work', title: '修改工作', write: true, staged: true, inputSchema: { type: 'object', properties: { work_id: { type: 'string' } }, required: ['work_id'] }, handler: a => { ran++; return { ok: true, staged: ['标题'] }; } }];
+  await withServer({ tools, confirm: async () => { asked++; return false; } }, async ({ srv, token }) => {
+    const r = await (await rpc(srv, token, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'update_work', arguments: { work_id: 'w1' } } })).json();
+    assert.ok(!r.result.isError); assert.equal(ran, 1); assert.equal(asked, 0);
+    const list = await (await rpc(srv, token, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
+    assert.equal(list.result.tools.find(t => t.name === 'update_work').annotations.readOnlyHint, false, '对外仍标为会改数据');
+    await rpc(srv, token, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'bind_work_mp2', arguments: { work_id: 'w1' } } });
+    assert.equal(asked, 1);
+  });
+});

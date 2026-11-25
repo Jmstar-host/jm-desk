@@ -111,7 +111,9 @@ function row(x, cls = '') {
   return h('div', { class: `r ${cls} ${x.id === current ? 'on' : ''} ${x.status !== 'open' ? 'done' : ''}`, 'data-id': x.id, onclick: () => show(x.id) },
     x.level === 'todo' ? h('input', { type: 'checkbox', class: 'ck', title: x.status === 'done' ? '重新打开' : '标为完成', checked: x.status === 'done', onclick: e => e.stopPropagation(), onchange: e => setTodo(x.id, e.target.checked) }) : null,
     h('span', { class: 'kd ' + x.level }, KIND[x.level]), x.mp2?.code ? h('span', { class: 'code' }, x.mp2.code) : null, h('span', { class: 'ti', title: x.title }, x.title),
-    x.pending ? h('span', { class: 'tag warn', title: x.pushError || '' }, x.pushError ? '推送失败' : '待推送') : null,
+    x.pending ? (!inScope(x.mp2?.productId ?? prodMp2(x.productId)) ? h('span', { class: 'tag', title: '这个平台产品不在关联的负责范围里，推不上去' }, '范围外')
+      : h('span', { class: 'tag warn', title: x.pushError || (x.stagedBy && x.stagedBy !== 'me' ? WHO[x.stagedBy] + '提交的改动' : '') }, x.pushError ? '推送失败' : x.stagedBy && x.stagedBy !== 'me' ? WHO[x.stagedBy] + '提交' : '待推送')) : null,
+    x.ready ? h('span', { class: 'tag pink', title: `${WHO[x.ready.by] || 'AI'}准备好了，等你核对后录入` }, `${WHO[x.ready.by] || 'AI'}备好`) : null,
     x.missing ? h('span', { class: 'tag warn' }, '平台上找不到') : null,
     !x.mp2 && x.suggest === 'bind' ? h('span', { class: 'tag', title: 'AI 认为平台上已经有这条' }, '可能已在平台') : null,
     x.mp2Label ? h('span', { class: 'x' }, x.mp2Label) : null, x.deadline ? h('span', { class: 'x' }, '⏰ ' + String(x.deadline).slice(5, 10)) : null);
@@ -165,7 +167,7 @@ async function show(id) {
 }
 const done = async (id, text, cls) => { flash = { id, text, cls }; await load(); };
 const card = (title, ...kids) => h('section', { class: 'box' }, title ? h('h4', {}, ...[].concat(title)) : null, ...kids);
-const WHO = { ai: 'AI', me: '我', 'local-ai': '本机 AI', assistant: '助手' };
+const WHO = { ai: 'AI ', me: '我', 'local-ai': '本机 AI ', assistant: '助手' }; // 英文结尾的带空格，拼「提交」「备好」时不挤在一起
 /* 证据链：线索 → AI 整理 → 字段与依据 → 录入平台 → 平台上的各阶段；点线索条目打开原文 */
 const CHAIN_STATE = { done: '已完成', now: '进行中', todo: '未开始', warn: '需要处理', skip: '跳过' };
 function chainCard(w) {
@@ -181,7 +183,7 @@ function tail(w) {
       h('span', { class: 'kd ' + c.level }, KIND[c.level]), h('span', { class: 'ti' }, c.title), h('span', { class: 'x' }, STATUS[c.status]))))) : null,
     w.sources.length ? card(['依据的线索', h('em', {}, String(w.sources.length))], ...w.sources.map(s => h('div', { class: 'src', title: '在「线索」里看原文', onclick: () => ipcRenderer.send('list:open', s.id) }, h('b', {}, `${s.sourceLabel} · ${s.title}`), h('small', {}, s.preview)))) : null,
     (w.history || []).length ? card('变更记录', h('ol', { class: 'tl' }, ...(w.history || []).slice().reverse().slice(0, 12).map(x => h('li', {},
-      h('time', {}, when(x.at)), h('span', {}, h('b', {}, WHO[x.by] || '系统'), (x.fields || []).length ? ' 改了 ' + x.fields.map(f => FLD[f] || f).join('、') : '', x.note ? h('small', {}, x.note) : null))))) : null];
+      h('time', {}, when(x.at)), h('span', {}, h('b', {}, (WHO[x.by] || '系统').trim()), (x.fields || []).length ? ' 改了 ' + x.fields.map(f => FLD[f] || f).join('、') : '', x.note ? h('small', {}, x.note) : null))))) : null];
 }
 
 /* 平台上的记录：按平台的字段展示；保存只存本机，核对改动后再推送 */
@@ -217,7 +219,7 @@ function platformDetail(w) {
     if (conflict) return pend.replaceChildren(h('div', { class: 'box warn' }, h('h4', {}, '平台上这条记录刚被别人改过'), h('p', {}, '下面这些字段，你和平台上的新内容不一样。选一个：'),
       h('table', { class: 'diff' }, h('tr', {}, h('th', {}, '字段'), h('th', {}, '你改成'), h('th', {}, '平台现在')), ...conflict.map(c => h('tr', {}, h('td', { class: 'k' }, c.label), h('td', {}, c.mine), h('td', {}, c.platform)))),
       h('div', { class: 'act' }, h('button', { class: 'pri', onclick: () => push('mine') }, '用我的覆盖'), h('button', { onclick: () => push('platform') }, '改用平台的'))));
-    pend.replaceChildren(h('div', { class: 'box hot' }, h('h4', {}, `${w.pending.length} 处改动还没推到${P.name}`),
+    pend.replaceChildren(h('div', { class: 'box hot' }, h('h4', {}, `${w.stagedBy && w.stagedBy !== 'me' ? WHO[w.stagedBy] + '提交了 ' : ''}${w.pending.length} 处改动，还没推到${P.name}`),
       h('table', { class: 'diff' }, ...w.pending.map(p => h('tr', {}, h('td', { class: 'k' }, p.label), h('td', { class: 'o' }, p.from), h('td', {}, p.to)))),
       w.mp2Error && w.mp2Dirty?.length ? h('div', { class: 'err' }, '上次推送失败：' + w.mp2Error) : null,
       h('div', { class: 'act' }, h('button', { class: 'pri', onclick: () => push() }, '确认，推送到平台'), h('button', { onclick: () => push('platform') }, '放弃改动'), h('span', { class: 'muted' }, '推送前会核对平台上是不是最新'))));
@@ -331,6 +333,8 @@ function intakeDetail(w) {
     tools: [h('button', { class: 'sm ghost', title: '不录入了，从待录入里拿掉', onclick: async () => { try { await call('work:edit', w.id, { status: 'dropped' }, { push: false }); current = null; await load(); $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, '已标为不做了')); } catch (e) { fail(e); } } }, '不做了')],
     body: [
     h('h2', {}, w.title),
+    w.ready ? h('div', { class: 'box hot' }, h('h4', {}, `${WHO[w.ready.by] || 'AI'}准备把它${w.ready.action === 'create' ? '在平台新建' : '录入平台'}`),
+      h('p', {}, `${when(w.ready.at)} 提交。核对下面的字段和依据，没问题就点「${isReq ? '录入到' + P.name : '在平台新建'}」；不想录就点右上角「不做了」。`)) : null,
     h('div', { class: 'facts' }, h('span', { class: 'tag warn' }, '还没进平台'), w.who ? h('span', {}, '提出：' + w.who) : null, w.deadline_quote ? h('span', { title: w.deadline_verified ? '' : '原文里没找到这句，待确认' }, `交期原话：「${w.deadline_quote}」`) : null),
     !P.linked ? h('div', { class: 'box warn' }, h('h4', {}, `还没有关联${P.name}`), h('p', {}, '关联账号后才能录入。'), h('div', { class: 'act' }, h('button', { class: 'pri', onclick: () => ipcRenderer.send('panel:action', 'app.connect') }, '去关联'))) : null,
     s?.action === 'bind' ? h('div', { class: 'box hot' }, h('h4', {}, 'AI 认为平台上已经有这条'), h('p', {}, `${s.code || '#' + s.mp2Id}「${s.title}」${s.reason ? '（' + s.reason + '）' : ''}`),

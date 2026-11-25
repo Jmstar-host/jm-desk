@@ -96,7 +96,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       parentId: x.parentId || null, productId: x.productId || null, product: x.product || null, updatedAt: x.updatedAt || x.addedAt || null,
       mp2: x.mp2 ? { kind: x.mp2.kind, id: x.mp2.id, code: x.mp2.code || null } : null, mp2Label: x.mp2Status?.label || null, missing: x.mp2Status?.found === false,
       pending: wm.mp2Pending(x).length, pushError: x.mp2Error && x.mp2Dirty?.length ? x.mp2Error : null, suggest: !x.mp2 && x.mp2Suggest ? x.mp2Suggest.action : null,
-      todosOpen: (kids.get(x.id) || []).filter(c => c.level === 'todo' && c.status === 'open').length, clues: (x.sids || []).length }));
+      todosOpen: (kids.get(x.id) || []).filter(c => c.level === 'todo' && c.status === 'open').length, clues: (x.sids || []).length, ready: !x.mp2 && x.ready ? x.ready : null, stagedBy: x.mp2 && wm.mp2Pending(x).length ? x.stagedBy || null : null }));
     return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, scope, platform: { id: 'mp2', linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null },
       /* 工作台能切换的平台。接入方式有两种：contract = 平台按 JM Desk 的接入规范（docs/DESK-CONTRACT.md）开放接口；adapter = JM Desk 按平台现有的接口适配。
        * 现在只有需求管理平台（按它现有的接口适配）；ERP 等以后在这里登记 */
@@ -113,7 +113,9 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   }
   /* D87：保存即回写——改的是 MP2 的项目 / 需求时，只把改动字段送回 MP2；回写失败本地照样保存，标「待回写」，下次保存或拉取时重试 */
   async function editWork(id, patch, by = 'me', { push = true } = {}) {
-    const w = loadWork(); wm.editItem(w, id, patch, undefined, by); saveWork(w);
+    const w = loadWork(); wm.editItem(w, id, patch, undefined, by);
+    const it = w.find(x => x.id === id); if (it && !push) { it.stagedBy = by; it.stagedAt = new Date().toISOString(); } // 谁提交的改动：工作台「待推送」里显示
+    saveWork(w);
     const mp2Sync = push ? await pushMp2(id, by) : null; // 界面上先存本机，人看过改动再推送（push: false）；助手补充信息仍然保存即推送
     return { ...workItem(id), mp2Sync };
   }
@@ -199,10 +201,24 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     const data = await chatJSON(wm.buildSuggestPrompt({ taxonomy: t, work: w }), packed);
     const w2 = loadWork(), n = wm.applySuggest(w2, data, { taxonomy: t }); saveWork(w2); return n;
   }
-  async function applyMp2Suggestion(id, by = 'me') {
+  /* AI 准备好一条要录入 / 新建到平台的工作（1.5.0）：只记在本机（ready），在工作台「待录入」里标出来，人点「录入」才真的写平台。
+   * 和 git 一样：AI（助手、本机 AI、执行者）提交，人在 JM Desk 推送 */
+  function stageReady(id, by, { action, product, productMp2Id } = {}) {
+    const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
+    if (it.mp2) throw new Error('这条已经对应平台记录了，用 update_work 改');
+    let p = product ? productByName(product) : null;
+    if (product && !p) throw new Error(`产品树里没有「${product}」，先 list_mp2_upload_products 看可选的`);
+    if (!p && productMp2Id != null) { const t = taxonomy(), pr = (t.products || []).find(x => x.mp2Id === productMp2Id), ln = pr && (t.lines || []).find(l => l.id === pr.lineId); if (pr) p = { product: pr.name, productId: pr.id, line: ln?.path || null, lineId: ln?.id || null }; }
+    if (p) wm.editItem(w, id, p, undefined, by);
+    it.ready = { by, at: new Date().toISOString(), action: action || (it.level === 'project' ? 'create' : 'upload') };
+    (it.history ||= []).push({ at: it.ready.at, by, fields: ['ready'], note: '准备好录入平台，等确认' });
+    saveWork(w); return { ok: true, staged: true, id, product: it.product || null, note: '已在 JM Desk 工作台「待录入」里备好，用户核对后点「录入」才会写到需求管理平台' };
+  }
+  async function applyMp2Suggestion(id, by = 'me', { stage = false } = {}) {
     const it = loadWork().find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
     const s = it.mp2Suggest; if (!s) throw new Error('这条工作没有待确认的建议');
     if (s.action === 'bind') return { ok: true, action: 'bind', item: bindWork(id, { id: s.mp2Id, code: s.code, title: s.title }, by) };
+    if (stage && s.action === 'create') return { action: 'create', ...stageReady(id, by, { productMp2Id: s.productMp2Id }) };
     if (s.action === 'create' && it.level === 'requirement') return { action: 'create', ...(await uploadWork(id, by, { productId: s.productMp2Id })) };
     if (s.action === 'create' && it.level === 'project') return { action: 'create', ...(await createProjectWork(id, by, { productId: s.productMp2Id })) };
     const prod = (taxonomy().products || []).find(p => p.mp2Id === s.productMp2Id); if (!prod) throw new Error('产品树里已经没有这个平台产品，先拉取一次');
@@ -439,5 +455,5 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     for (const e of Object.values(clean)) if (e.sid && !(it.sids ||= []).includes(e.sid)) it.sids.push(e.sid); // 用到的线索挂到这条上，证据链里能看到
     it.evidence = { at: new Date().toISOString(), fields: clean }; saveWork(w); return it.evidence;
   }
-  return { scopeIds, newDraft, aiFill, setEvidence, saveMeeting, summarizeMeetings, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  return { stageReady, scopeIds, newDraft, aiFill, setEvidence, saveMeeting, summarizeMeetings, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }

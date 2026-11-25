@@ -66,7 +66,8 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **对齐需求管理平台（只读）**：项目、需求可以绑定平台记录（`w.mp2 = { kind: project|requirement, id, code, title }`，`workmodel.mjs` 的 `bindMp2` / `unbindMp2`），绑定后 `w.mp2Status` 显示平台实时状态：项目取产品树的状态与周期；需求取 `GET:/api/v1/plans/targets/by-requirements`（状态、所在需求计划的交付状态与排期、所属功能）。需求用 `GET:/api/requirement/list?keyword=` 搜。待办、专项只在本地。绑定只改本机，不写平台；AI 整理不改 `mp2`。工作台打开时、同步产品树后会刷新一次进度。
 - **工作台怎么排**（1.3.1 起，1.4.0 加平台切换与可折叠的产品线；`app/renderer/work.*`，数据来自 `services.workBoard`）：左边是平台（关联状态、「拉取最新」）、「我要处理的」（待录入 = 本机整理出还没进平台的项目和需求；待推送 = 平台记录在本机改过还没推；我的待办 = 只在本机）、「平台结构」（产品线 › 平台产品）；右边按平台的录入字段展示。
   - 平台记录「保存改动」只存本机（`work:edit` 带 `{ push: false }`），界面列出改前 → 改后，人确认后才 `work:push`。
-  - **推送前核对版本**（`services.pushWork`、`workmodel.mjs` 的 `mp2Pending` / `mp2Conflicts` / `mp2Rebase` / `mp2Discard`）：重新读平台上的当前值，和编辑前的基线比。别人改了我也改的字段 → 冲突，并排给人选「用我的」或「用平台的」；别人改的其他字段跟着平台走。项目另有平台的 `revision` 把关。助手经 `update_work` 补充信息仍是保存即推送。
+  - **AI 写入先提交、人再推送**（1.5.0，像 git）：JM Desk 的作用是把 AI 对平台的写入动作摆到人面前。助手、本机 AI（Claude Code / Codex / DSH 经本机 MCP）、执行者调 `update_work` 只提交到「待推送」（记 `stagedBy` / `stagedAt`）；`upload_work_mp2`、`create_mp2_project`、`apply_mp2_suggestion`（在平台新建时）只把这条标为 `ready`（`services.stageReady`），在「待录入」里标「X 备好」。真正写平台都要人在工作台点「确认，推送到平台」或「录入」。这几个工具标了 `staged: true`，本机 MCP 调它们不弹确认（只改本机）；直接写平台的工具照旧确认。提交后精灵说一声，点一下打开工作台。
+  - **推送前核对版本**（`services.pushWork`、`workmodel.mjs` 的 `mp2Pending` / `mp2Conflicts` / `mp2Rebase` / `mp2Discard`）：重新读平台上的当前值，和编辑前的基线比。别人改了我也改的字段 → 冲突，并排给人选「用我的」或「用平台的」；别人改的其他字段跟着平台走。项目另有平台的 `revision` 把关。助手、本机 AI 经 `update_work` 改的也一样只进「待推送」（1.5.0）。
   - 录入需求只写 `business_project_id`，不写 `scope_type` / `scope_id`；AI 的录入建议只在关联的负责范围内选平台产品。
 - **证据链**（1.4.0，`workmodel.mjs` 的 `evidenceChain` / `buildFillPrompt` / `EVIDENCE_FIELDS`，`services.aiFill` / `setEvidence`）：线索 → AI 整理 → 字段与依据 → 录入平台 → 受理与澄清 → 需求计划 → 加入项目 → 功能，工作台详情里的「证据链」卡片。
   - 「AI 按线索补全」：AI 读这条的线索原文，按平台字段给出值和出处（线索编号 + 逐字原话）；原话会在原文里核对（`verified`）；线索里没有的列进 `missing`，界面标「需要人工补充」并写明该问谁。只给建议，人核对后才录入。
@@ -114,7 +115,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `mcp-http`：网址形式的 MCP（Streamable HTTP，兼容只返回 JSON 的无状态实现），可以写 `urls` 作为备用地址。
   - `api`：HTTP API。有 OpenAPI（JSON）时每个接口生成一个工具；没有时只提供一个「通用请求」工具，而且只能访问 `baseUrl` 下的路径。
 - **内置工具**「JM Desk 工作区」（`kind: builtin`，`main.mjs` 的 `localTools`）：查待办、需求池、线索，读线索原文，新建和完成待办；工作台：`list_work`、`update_work`，以及对齐需求管理平台的 `sync_mp2_tree`、`list_mp2_projects`、`search_mp2_requirements`、`refresh_mp2_status`、`bind_work_mp2`、`unbind_work_mp2`。工作台按钮、助手、本机 AI 用的是同一组动作。
-- **本机 AI 控制 JM Desk**（`app/main/localmcp.mjs`，「接入」里的「让本机 AI 控制 JM Desk」，默认关闭）：JM Desk 在 127.0.0.1 提供 MCP 端点（`POST /mcp`，Streamable HTTP 的无状态 JSON 实现），工具就是上面的内置工具。令牌和完整客户端配置在 `DATA/local-mcp.json`（0600）；拒绝非本机 Host 和非本机 Origin（防网页跨站和 DNS 重绑定）；写工具每次用系统弹窗确认，history 里记为 `local-ai`。端口尽量沿用上次的，「换令牌」后本机 AI 要重新复制配置。
+- **本机 AI 控制 JM Desk**（`app/main/localmcp.mjs`，「接入」里的「让本机 AI 控制 JM Desk」，默认关闭；不一定要用 JM Desk 自己的助手对话，桌面上任何 agent 都可以经这里提交改动，见 §3「AI 写入先提交、人再推送」）：JM Desk 在 127.0.0.1 提供 MCP 端点（`POST /mcp`，Streamable HTTP 的无状态 JSON 实现），工具就是上面的内置工具。令牌和完整客户端配置在 `DATA/local-mcp.json`（0600）；拒绝非本机 Host 和非本机 Origin（防网页跨站和 DNS 重绑定）；写工具每次弹确认卡（标了 `staged` 的只提交到 JM Desk，不弹），history 里记为 `local-ai`。端口尽量沿用上次的，「换令牌」后本机 AI 要重新复制配置。
 - **已关联的需求管理平台**会自动成为内置接入：设备授权拿到的凭据本身就是 `mcpServers.mp2` 配置。
 - **密钥**：环境变量、请求头、Token 都加密存放在 `secrets.json` 的 `integ` 下，`settings.json` 里只有名字。
 - **工具权限** `toolPolicy[接入][工具] = auto | confirm | off`。默认规则：只读的工具（MCP 标了 `readOnlyHint`、名字像查询、API 的 GET）是 `auto`，其余是 `confirm`。
