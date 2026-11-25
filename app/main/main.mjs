@@ -600,8 +600,26 @@ ipcMain.on('chat:open', (_e, focusId) => openDesk('chat', focusId));
 ipcMain.handle('work:tree', safe((_e, o) => services.workTree(o || {})));
 ipcMain.handle('work:item', safe((_e, id) => services.workItem(String(id))));
 ipcMain.handle('work:edit', safe(async (_e, id, patch, opts) => { const r = await services.editWork(String(id), patch || {}, 'me', { push: opts?.push !== false }); pushCounts(); return r; }));
-ipcMain.handle('work:board', safe(() => services.workBoard()));
-ipcMain.handle('work:ai-fill', safe(async (_e, id) => { if (!hasModel('summary')) throw new Error('还没有可用的模型（设置 › 模型）'); return services.aiFill(String(id)); }));
+ipcMain.handle('work:board', safe(async () => services.workBoard()));
+ipcMain.handle('work:ai-fill', safe(async (_e, id) => {
+  if (!hasModel('summary')) throw new Error('还没有可用的模型（设置 › 模型）');
+  const it = services.workItem(String(id));
+  return services.aiFill(String(id), { knowledge: await knowledgeFor(`${it.title} ${String(it.summary || '').slice(0, 200)}`) });
+}));
+/* 本地知识：在标了「知识库」的接入里检索，取前几条作为补全的依据（K1…）。没有知识库接入或检索失败时返回空，不影响用线索补全 */
+async function knowledgeFor(query) {
+  try {
+    const c = await hub.catalog({ ensure: false }), t = c.tools.find(x => x.integ.knowledge && x.tool.name === 'knowledge_search');
+    if (!t || !query.trim()) return [];
+    const r = await Promise.race([hub.call(t.integ, t.tool, { query: query.slice(0, 200), limit: 4 }), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000))]);
+    let j = null; try { j = JSON.parse(r.text); } catch {}
+    const list = Array.isArray(j) ? j : j?.items || j?.hits || j?.results || j?.data || null;
+    if (Array.isArray(list)) return list.slice(0, 4).map((x, i) => ({ title: String(x.title || x.name || x.source || x.doc_title || `检索结果 ${i + 1}`).slice(0, 80), text: String(x.content || x.text || x.snippet || x.chunk || x.summary || JSON.stringify(x)).slice(0, 3000) })).filter(x => x.text.trim());
+    return r.text?.trim() ? [{ title: `${t.integ.name}：${query.slice(0, 30)}`, text: r.text.slice(0, 6000) }] : [];
+  } catch (e) { console.warn('knowledge', e.message); return []; }
+}
+ipcMain.handle('work:new', safe((_e, o) => services.newDraft(o || {})));
+ipcMain.handle('work:scope', safe(() => services.scopeIds({ fresh: true })));
 ipcMain.handle('work:evidence', safe((_e, id, f) => services.setEvidence(String(id), f)));
 /* ---------- 会议纪要（meeting.mjs）：本机 whisper，结果进线索池 ---------- */
 let meet = null, meetDl = null;

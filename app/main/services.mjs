@@ -88,7 +88,8 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   function derivedIndex() { const m = new Map(); for (const x of loadWork()) for (const s of x.sids || []) { if (!m.has(s)) m.set(s, []); m.get(s).push({ id: x.id, level: x.level, title: x.title, status: x.status }); } return m; }
   function setTask(id, status) { const w = loadWork(); wm.editItem(w, id, { status }); saveWork(w); return tasks(); }
   /* 工作台看板（1.3.1）：把全部工作摊平给界面，由界面按「平台的树」和「我要处理的」来排，不再用本机自己的分组 */
-  function workBoard() {
+  async function workBoard() {
+    const scope = await scopeIds().catch(() => null);
     const w = loadWork(), t = dataStore.read('taxonomy.json', { lines: [], products: [], projects: [] }), cfg = desk.config();
     const kids = new Map(); for (const x of w) if (x.parentId) { if (!kids.has(x.parentId)) kids.set(x.parentId, []); kids.get(x.parentId).push(x); }
     const items = w.filter(x => x.status !== 'dropped' || x.mergedInto == null).map(x => ({ id: x.id, level: x.level, type: x.type || null, title: x.title, status: x.status, deadline: x.deadline || null, priority: x.priority || 'medium',
@@ -96,7 +97,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       mp2: x.mp2 ? { kind: x.mp2.kind, id: x.mp2.id, code: x.mp2.code || null } : null, mp2Label: x.mp2Status?.label || null, missing: x.mp2Status?.found === false,
       pending: wm.mp2Pending(x).length, pushError: x.mp2Error && x.mp2Dirty?.length ? x.mp2Error : null, suggest: !x.mp2 && x.mp2Suggest ? x.mp2Suggest.action : null,
       todosOpen: (kids.get(x.id) || []).filter(c => c.level === 'todo' && c.status === 'open').length, clues: (x.sids || []).length }));
-    return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, platform: { id: 'mp2', linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null },
+    return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, scope, platform: { id: 'mp2', linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null },
       /* 工作台能切换的平台。接入方式有两种：contract = 平台按 JM Desk 的接入规范（docs/DESK-CONTRACT.md）开放接口；adapter = JM Desk 按平台现有的接口适配。
        * 现在只有需求管理平台（按它现有的接口适配）；ERP 等以后在这里登记 */
       platforms: [{ id: 'mp2', name: '需求管理平台', linked: mp2.ready(cfg), mode: 'adapter', syncedAt: t.syncedAt || null }] };
@@ -128,6 +129,8 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   /** 界面上的「推送」。mode：undefined 先核对；'mine' 冲突时用我的；'platform' 放弃我的改动、换成平台现在的。 */
   async function pushWork(id, mode, by = 'me') {
     const it0 = loadWork().find(x => x.id === id); if (!it0?.mp2) throw new Error('这条工作还没有对应平台记录');
+    if (mode !== 'platform') { const sc = await scopeIds({ fresh: true }), pid = recordProduct(it0); // 平台只允许改负责范围内的记录：先查，免得发出去再被拒
+      if (sc && pid != null && !sc.includes(Number(pid))) return { ok: false, outOfScope: true, error: `「${it0.product || '#' + pid}」不在这个关联的负责范围里，平台不允许改这条。到需求管理平台「AI 接入」把它加进负责范围，再回来推送`, item: workItem(id) }; }
     if (!wm.mp2Pending(it0).length && mode !== 'platform') return { ok: true, nothing: true, item: workItem(id) };
     let chk = { conflicts: [] };
     try { chk = await checkMp2(id); } catch (e) { return { ok: false, error: '推送前没能读到平台上的最新内容，没有推送：' + e.message, item: workItem(id) }; }
@@ -174,7 +177,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     let t, fallback = null;
     try { t = wm.flattenPortfolio(await mp2.portfolioTree(cfg)); }
     catch (e) { if (e.stop) throw e; fallback = e.code || e.message; t = { ...wm.flattenTree(await mp2.productTree(cfg)), projects: [] }; }
-    dataStore.write('taxonomy.json', t);
+    dataStore.write('taxonomy.json', t); scopeCache = null; // 负责范围可能在平台上调整过
     let pushed = 0, pushFailed = 0;
     for (const it of loadWork().filter(x => x.mp2 && x.mp2Dirty?.length)) { const r = await pushMp2(it.id, 'me'); if (r?.ok) pushed++; else if (r) pushFailed++; }
     let reqs = null, reqError = null;
@@ -375,30 +378,66 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   /* 把指定的线索交给 AI 整理成工作（会议纪要「整理进工作台」用）；和「汇总新线索」同一套抽取与合并 */
   const summarizeMeetings = () => summarize({ sources: ['meeting_local'], hours: 24 * 14, refresh: false });
   /* AI 按线索补全平台字段：每个字段给出值和原话出处；线索里没有的列进 missing（界面上标「需要人工补充」）。只给建议，不改数据 */
-  async function aiFill(id) {
+  /* 关联的负责范围（平台产品 id 列表）：平台只允许改范围内的记录。缓存 5 分钟；读不到返回 null（按不限处理，由平台把关） */
+  let scopeCache = null;
+  async function scopeIds({ fresh = false } = {}) {
+    const cfg = desk.config(); if (!mp2.ready(cfg)) return null;
+    if (!fresh && scopeCache && Date.now() - scopeCache.at < 5 * 60e3) return scopeCache.ids;
+    let ids = null; try { const sc = await mp2.responsibility(cfg); ids = sc?.length ? sc.map(x => Number(x.id)) : null; } catch { ids = scopeCache?.ids ?? null; }
+    scopeCache = { at: Date.now(), ids }; return ids;
+  }
+  const recordProduct = it => it?.mp2?.productId ?? (taxonomy().products || []).find(p => p.id === it?.productId)?.mp2Id ?? null;
+  /* 手动新建一条待录入（需求或项目）：给一句话也行，之后用「AI 结合线索和知识补全」 */
+  function newDraft({ level = 'requirement', title = '', summary = '', productId = null } = {}) {
+    if (!['requirement', 'project'].includes(level)) throw new Error('只能新建需求或项目');
+    const t = taxonomy(), prod = productId ? (t.products || []).find(p => p.id === productId) : null, line = prod ? (t.lines || []).find(l => l.id === prod.lineId) : null;
+    const now = new Date().toISOString(), w = loadWork();
+    const it = { id: 'w_' + Math.random().toString(16).slice(2, 14), level, type: level === 'requirement' ? 'feature' : null, title: String(title || '').trim().slice(0, 200) || (level === 'requirement' ? '新需求' : '新项目'),
+      summary: String(summary || '').slice(0, 4000), owner: 'me', who: '', sids: [], parentId: null, line: line?.path || prod?.path || null, lineId: line?.id || null, product: prod?.name || null, productId: prod?.id || null,
+      deadline: null, deadline_verified: false, priority: 'medium', status: 'open', addedAt: now, updatedAt: now, locked: [], history: [{ at: now, by: 'me', fields: ['created'], note: '手动新建' }] };
+    w.push(it); saveWork(w); return it;
+  }
+  /* 线索池里和这条相关的线索（没有挂线索时用）：按标题、说明里的词打分，取前几条 */
+  function relatedSignals(it, n = 5) {
+    const text = `${it.title} ${it.summary || ''}`, words = [...new Set((text.match(/[A-Za-z0-9]{2,}|[\u4e00-\u9fa5]{2,}/g) || []).flatMap(x => /[\u4e00-\u9fa5]/.test(x) && x.length > 4 ? x.match(/.{2}/g) : [x.toLowerCase()]))].slice(0, 24);
+    if (!words.length) return [];
+    return desk.listSignals().filter(s => s.status !== 'split').map(s => { const hay = (s.title + '\n' + String(s.content || '').slice(0, 20000)).toLowerCase(); return { s, n: words.filter(k => hay.includes(k)).length }; })
+      .filter(x => x.n >= Math.min(2, words.length)).sort((a, b) => b.n - a.n).slice(0, n).map(x => x.s);
+  }
+  /* AI 按线索和知识补全平台字段：依据可以来自这条挂的线索（S）、线索池里相关的线索（S）、知识库检索结果（K）。
+   * 每个字段给出值和原话出处，原话要真的在那份材料里；没依据的列进 missing。只给建议，不改数据 */
+  async function aiFill(id, { knowledge = [] } = {}) {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
-    const all = new Map(desk.listSignals().map(s => [s.id, s])), sigs = (it.sids || []).map(s => all.get(s)).filter(Boolean).slice(0, 8);
-    if (!sigs.length) return { fields: {}, missing: [{ field: '*', ask: '这条没有线索记录：按平台要求的字段手动补充' }], sources: [] };
+    const all = new Map(desk.listSignals().map(s => [s.id, s]));
+    let sigs = (it.sids || []).map(s => all.get(s)).filter(Boolean).slice(0, 8), related = false;
+    if (sigs.length < 3) { const more = relatedSignals(it).filter(s => !sigs.includes(s)); if (more.length) related = true; sigs = [...sigs, ...more].slice(0, 8); }
+    const kn = (knowledge || []).filter(k => k && k.text).slice(0, 4);
+    if (!sigs.length && !kn.length && !String(it.summary || '').trim() && /^新(需求|项目)$/.test(it.title)) return { fields: {}, missing: [{ field: '*', ask: '先在标题或描述里用一两句话说要做什么，AI 才能去线索池和知识库里找依据' }], sources: [] };
     let products = (taxonomy().products || []).map(p => p.name);
-    if (it.level === 'requirement') { try { const t = await mp2UploadTargets(); if (t.products?.length) products = t.products.map(p => p.name); } catch {} }
-    const packed = sigs.map((s, i) => `S${i + 1}｜${digest.summarize(s).sourceLabel}｜${s.title}｜${s.occurred_at || s.collectedAt || ''}\n${String(s.content || '').slice(0, 5000)}`).join('\n\n---\n\n');
+    try { const t = await mp2UploadTargets(); if (t.products?.length) products = t.products.map(p => p.name); } catch {}
+    const packed = [...sigs.map((s, i) => `S${i + 1}｜${digest.summarize(s).sourceLabel}｜${s.title}｜${s.occurred_at || s.collectedAt || ''}\n${String(s.content || '').slice(0, 5000)}`),
+      ...kn.map((k, i) => `K${i + 1}｜知识库｜${k.title}\n${String(k.text).slice(0, 3000)}`)].join('\n\n---\n\n');
     const prompt = wm.buildFillPrompt({ level: it.level, products });
-    const data = await chatJSON(prompt, `当前这条（本机整理的草稿）：${it.title}\n${it.summary || ''}\n\n线索：\n${packed}`);
-    const fields = {};
+    const data = await chatJSON(prompt, `当前这条（用户写的草稿，是要做的事，不是依据）：${it.title}\n${it.summary || ''}\n\n材料（S 是线索，K 是知识库）：\n${packed || '（没有找到相关的线索和知识）'}`);
+    const fields = {}, norm = x => String(x || '').replace(/\s+/g, '');
     for (const [k, v] of Object.entries(data?.fields || {})) {
       if (!wm.EVIDENCE_FIELDS[k] || !v || v.value == null || v.value === '') continue;
-      const n = Number(String(v.source || '').replace(/\D/g, '')) - 1, sig = sigs[n];
-      const quote = String(v.quote || '').slice(0, 120), real = sig && quote && String(sig.content || '').replace(/\s+/g, '').includes(quote.replace(/\s+/g, '').slice(0, 12)); // 原话要真的在那条线索里
+      const ref = String(v.source || '').toUpperCase(), n = Number(ref.replace(/\D/g, '')) - 1, isK = ref.startsWith('K');
+      const sig = isK ? null : sigs[n], kb = isK ? kn[n] : null, body = sig ? sig.content : kb ? kb.text : '';
+      const quote = String(v.quote || '').slice(0, 120), real = !!(body && quote && norm(body).includes(norm(quote).slice(0, 12)));
       if (k === 'product' && !products.includes(String(v.value))) continue;
-      fields[k] = { value: String(v.value).slice(0, k === 'summary' ? 2000 : 200), sid: sig?.id || null, quote, verified: !!real, source: sig ? digest.summarize(sig).sourceLabel + ' · ' + sig.title : null };
+      fields[k] = { value: String(v.value).slice(0, k === 'summary' ? 2000 : 200), sid: sig?.id || null, kb: kb ? kb.title : null, quote: sig || kb ? quote : '', verified: real,
+        source: sig ? digest.summarize(sig).sourceLabel + ' · ' + sig.title : kb ? '知识库 · ' + kb.title : '用户草稿' };
+      if (!sig && !kb) fields[k].by = 'draft';
     }
-    return { fields, missing: (data?.missing || []).filter(m => m && m.field).slice(0, 8), sources: sigs.map(s => ({ id: s.id, title: s.title })) };
+    return { fields, missing: (data?.missing || []).filter(m => m && m.field).slice(0, 8), related, sources: [...sigs.map(s => ({ id: s.id, title: s.title })), ...kn.map(k => ({ kb: k.title }))] };
   }
   /* 保存字段依据（录入前由界面带上）：{ 字段: { by: 'ai'|'me', sid, quote } } */
   function setEvidence(id, fields) {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
-    const clean = {}; for (const [k, e] of Object.entries(fields || {})) if (wm.EVIDENCE_FIELDS[k] && e) clean[k] = e.by === 'me' ? { by: 'me' } : { by: 'ai', sid: e.sid ? String(e.sid) : null, quote: String(e.quote || '').slice(0, 200), verified: !!e.verified };
+    const clean = {}; for (const [k, e] of Object.entries(fields || {})) if (wm.EVIDENCE_FIELDS[k] && e) clean[k] = e.by === 'me' || e.by === 'draft' ? { by: 'me' } : { by: 'ai', sid: e.sid ? String(e.sid) : null, kb: e.kb ? String(e.kb).slice(0, 80) : null, quote: String(e.quote || '').slice(0, 200), verified: !!e.verified };
+    for (const e of Object.values(clean)) if (e.sid && !(it.sids ||= []).includes(e.sid)) it.sids.push(e.sid); // 用到的线索挂到这条上，证据链里能看到
     it.evidence = { at: new Date().toISOString(), fields: clean }; saveWork(w); return it.evidence;
   }
-  return { aiFill, setEvidence, saveMeeting, summarizeMeetings, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  return { scopeIds, newDraft, aiFill, setEvidence, saveMeeting, summarizeMeetings, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }

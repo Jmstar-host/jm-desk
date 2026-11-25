@@ -421,7 +421,7 @@ ${req ? `- priority：high | medium | low（线索里有紧急程度、截止日
 - type：feature（新功能）| change（优化）| bug（问题）
 ` : ''}- deadline：YYYY-MM-DD，只有线索里明确说了日期才填（相对日期按线索时间换算）
 - product：平台产品，只能从这个列表里选一个原样写出：${products.slice(0, 60).join('、') || '（没有列表，填 null）'}
-每个字段都要给出处：source 是线索编号（如 S1），quote 是那条线索里的原话（≤60字，逐字摘录）。线索里找不到依据的字段写 null，并放进 missing，写清楚该问谁、问什么。
+用户草稿说明了要做什么，可以据此写标题和描述，这时 source 写 "draft"、quote 留空。其余每个字段都要给出处：source 是线索编号（如 S1）或知识库编号（如 K1），quote 是那份材料里的原话（≤60字，逐字摘录）。线索里找不到依据的字段写 null，并放进 missing，写清楚该问谁、问什么。
 只输出 JSON：{"fields":{"title":{"value":"…","source":"S1","quote":"…"},"summary":…,${req ? '"priority":…,"type":…,' : ''}"deadline":…,"product":…},"missing":[{"field":"deadline","ask":"…"}]}`;
 }
 /** 证据链：线索 → AI 整理 → 补全与确认 → 录入平台 → 平台上的各个阶段。state：done | now | todo | warn */
@@ -430,11 +430,11 @@ export function evidenceChain(w, sources = [], work = []) {
   const first = by => H.find(x => x.by === by);
   const pushH = [...H].reverse().find(x => /已上传为|新建项目|新建为|绑定|对应到|已回写/.test(x.note || ''));
   const steps = [
-    { key: 'clue', label: '线索', state: sources.length ? 'done' : 'warn', note: sources.length ? `${sources.length} 条原文` : '没有线索记录，字段靠人工补充', items: sources.slice(0, 6).map(s => ({ text: `${s.sourceLabel} · ${s.title}`, at: s.at, sid: s.id })) },
+    { key: 'clue', label: '线索', state: sources.length || Object.values(ev).some(e => e.kb) ? 'done' : 'warn', note: sources.length ? `${sources.length} 条原文` : Object.values(ev).some(e => e.kb) ? '没有线索，依据来自知识库' : '没有线索记录，字段靠人工补充', items: sources.slice(0, 6).map(s => ({ text: `${s.sourceLabel} · ${s.title}`, at: s.at, sid: s.id })) },
     { key: 'draft', label: 'AI 整理', state: first('ai') ? 'done' : w.mp2 && !sources.length ? 'skip' : 'todo', at: first('ai')?.at || null, note: first('ai') ? (first('ai').note || '从线索整理出这条') : '没有经过 AI 整理' },
     { key: 'fill', label: '字段与依据', state: Object.keys(ev).length ? (Object.values(ev).some(e => e.by === 'me') ? 'done' : 'done') : w.mp2 ? 'skip' : 'now', at: w.evidence?.at || null,
       note: Object.keys(ev).length ? `${Object.values(ev).filter(e => e.by !== 'me').length} 项有线索原话，${Object.values(ev).filter(e => e.by === 'me').length} 项人工补充` : '还没整理字段依据',
-      items: Object.entries(ev).map(([k, e]) => ({ text: `${EVIDENCE_FIELDS[k] || k}：${e.by === 'me' ? '人工补充' : '「' + clip(e.quote, 60) + '」'}`, sid: e.sid || null })) },
+      items: Object.entries(ev).map(([k, e]) => ({ text: `${EVIDENCE_FIELDS[k] || k}：${e.by === 'me' ? '人工补充' : '「' + clip(e.quote, 60) + '」' + (e.kb ? ' · 知识库《' + clip(e.kb, 30) + '》' : '')}`, sid: e.sid || null })) },
     { key: 'push', label: '录入平台', state: w.mp2 ? 'done' : 'todo', at: pushH?.at || null, note: w.mp2 ? `${w.mp2.code || '#' + w.mp2.id}${pushH?.by === 'me' ? ' · 我确认' : pushH?.by ? ' · ' + ({ ai: 'AI', assistant: '助手', 'local-ai': '本机 AI' }[pushH.by] || '') : ''}` : '还没进平台' },
   ];
   if (w.mp2?.kind === 'requirement' || (!w.mp2 && w.level === 'requirement')) {
@@ -467,7 +467,7 @@ export function mp2RequirementDraft(work, id, { taxonomy, sources = [] } = {}) {
   // 证据（用户选的：带线索的摘录和出处，不带全文）：每个字段取自哪条线索的哪句话，人工补充的写明
   const ev = w.evidence?.fields || {}, evLines = Object.entries(ev).filter(([k]) => EVIDENCE_FIELDS[k]).map(([k, e]) => {
     const s = e.sid ? sources.find(x => x.id === e.sid) : null;
-    return `- ${EVIDENCE_FIELDS[k]}：${e.by === 'me' ? '人工补充' : `「${clip(e.quote, 80)}」${s ? `（${s.sourceLabel || ''}《${clip(s.title, 40)}》${s.at ? ' ' + String(s.at).slice(0, 10) : ''}）` : ''}`}`;
+    return `- ${EVIDENCE_FIELDS[k]}：${e.by === 'me' ? '人工补充' : `「${clip(e.quote, 80)}」${s ? `（${s.sourceLabel || ''}《${clip(s.title, 40)}》${s.at ? ' ' + String(s.at).slice(0, 10) : ''}）` : e.kb ? `（知识库《${clip(e.kb, 40)}》）` : ''}`}`;
   });
   if (evLines.length) lines.push('字段依据：\n' + evLines.join('\n'));
   lines.push('（由 JM Desk 工作台上传）');

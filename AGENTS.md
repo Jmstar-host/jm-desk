@@ -69,6 +69,8 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **证据链**（1.4.0，`workmodel.mjs` 的 `evidenceChain` / `buildFillPrompt` / `EVIDENCE_FIELDS`，`services.aiFill` / `setEvidence`）：线索 → AI 整理 → 字段与依据 → 录入平台 → 受理与澄清 → 需求计划 → 加入项目 → 功能，工作台详情里的「证据链」卡片。
   - 「AI 按线索补全」：AI 读这条的线索原文，按平台字段给出值和出处（线索编号 + 逐字原话）；原话会在原文里核对（`verified`）；线索里没有的列进 `missing`，界面标「需要人工补充」并写明该问谁。只给建议，人核对后才录入。
   - 录入时字段依据存在 `w.evidence.fields`（`{ by: 'ai'|'me', sid, quote, verified }`），平台描述末尾带「字段依据」：摘录 + 出处，不带线索全文（用户的选择）。平台实现 `DESK-CONTRACT.md` §7.5 后改走证据接口。
+- **负责范围**（1.4.1，`services.scopeIds`，缓存 5 分钟，拉取后失效）：平台只允许 AI 关联改负责范围内平台产品的记录。工作台把范围外的平台产品标「只读」，记录详情禁用编辑并说明去平台「AI 接入」加范围；`pushWork` 推送前先查，范围外直接返回 `outOfScope`，不发请求。
+- **新建需求**（1.4.1，顶栏「＋ 新建需求」，`services.newDraft`）：建一条待录入（在所选的、范围内的平台产品下），写一两句要做什么，点「AI 结合线索和知识补全」。`aiFill` 的依据来自：这条挂的线索、线索池里按关键词找到的相关线索（`relatedSignals`）、标了 `knowledge` 的接入里 `knowledge_search` 的结果（`main.mjs` 的 `knowledgeFor`，编号 K1…）。知识库依据存为 `{ by: 'ai', kb, quote }`；用到的线索在录入时挂到这条的 `sids` 上。
 - **AI 的职责**：汇总时按层级抽取，并合并到已有工作（`same_as`）；「AI 整理」带着原文重新分层、挂靠、合并重复，新建项目时用 `children` 写明挂哪些需求。**人改过的字段记入 `locked`，AI 之后不再覆盖**，每次改动都记在 `history` 里。
 
 ## 4. 员工提醒（不算待办）
