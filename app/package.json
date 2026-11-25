@@ -1,7 +1,7 @@
 {
   "name": "jm-desk",
   "productName": "JM Desk",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "开源的本地 AI 桌面助手：桌面精灵 + 信息源 + 平台接入 + 知识库，可二次开发",
   "license": "MIT",
   "main": "main/main.mjs",

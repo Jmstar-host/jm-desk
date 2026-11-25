@@ -49,6 +49,7 @@ const $ = id => document.getElementById(id);
 const root = $('root'), sayEl = $('say'), tipEl = $('tip');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let frame = null, mewL = { x: 0, y: 0, r: 0 }, menuOpen = false, sayOn = false, busy = false, idleT = null, leaveT = null, ignoring = null, items = [];
+let expandOn = true, builtAt = 0, buildPos = null, lastPos = { x: -1, y: -1 }, expandT = null, expandEl = null; // 1.8.1：停在分组气泡上自动展开下一级
 let sayTimer = null, tickTimer = null, sayAction = null, ctxOpen = false, hoverMenu = false, awayT = null; // hoverMenu：这次是鼠标放上去打开的，移开就收起
 const ctxEl = $('ctx');
 function setIgnore(v) { if (v === ignoring) return; ignoring = v; try { me.setIgnoreMouseEvents(v, { forward: true }); } catch (e) {} }
@@ -92,6 +93,15 @@ function fill(el, it) {
   el.dataset.tip = it.tip || '';
   const n = el.querySelector('.n'); if (it.n) { n.textContent = it.n > 99 ? '99+' : String(it.n); n.style.display = ''; } else n.style.display = 'none';
 }
+/* 分组气泡：鼠标停 0.22 秒就展开它的下一级（1.8.1）。进入气泡和在气泡上移动时都检查（第一次从外面进来时「进入」比「移动」先到）。
+ * 刚重新排过气泡、鼠标还没动过时不算：气泡换了位置正好落在鼠标下面，会来回切 */
+function tryExpand(el, it) {
+  if (!expandOn || !it || !it.go || it.on === true || busy || expandEl === el) return;
+  const moved = lastPos.x >= 0 && (!buildPos || buildPos.x < 0 || Math.hypot(lastPos.x - buildPos.x, lastPos.y - buildPos.y) > 4);
+  if (!moved || Date.now() - builtAt < 350) return;
+  clearTimeout(expandT); expandEl = el;
+  expandT = setTimeout(() => { expandEl = null; if (el.isConnected && el.matches(':hover') && !busy) tell('expand', { id: it.id }); }, 220);
+}
 function build(list) {
   items = list; box.replaceChildren(); hideTip();
   list.forEach((it, i) => {
@@ -105,8 +115,12 @@ function build(list) {
       st.style.cssText = `left:${l};top:${t};--td:${(d + i * 0.37) % 2.8}s`; el.append(st);
     }
     fill(el, it);
-    el.addEventListener('mouseenter', () => { if (el.classList.contains('in')) showTip(el, el.dataset.tip); });
-    el.addEventListener('mouseleave', hideTip);
+    el.addEventListener('mouseenter', () => {
+      if (el.classList.contains('in')) showTip(el, el.dataset.tip);
+      tryExpand(el, it);
+    });
+    el.addEventListener('mouseleave', () => { hideTip(); if (expandEl === el) { clearTimeout(expandT); expandEl = null; } });
+    el._it = it;
     el.addEventListener('click', e => { e.stopPropagation(); hideTip(); pick(it, el); });
     box.append(el);
   });
@@ -208,6 +222,7 @@ ipcRenderer.on('menu', (_e, json) => {
       if (sayOn) hideSay(true);
       await placeFrame(m.mew, m.wa);
       build(m.items); showWin(); menuOpen = true; busy = false; setIgnore(false); if (m.transition !== 'switch') hoverMenu = !!m.hover;
+      expandOn = m.expand !== false; builtAt = Date.now(); buildPos = { ...lastPos }; clearTimeout(expandT); expandEl = null;
       await wait(34); armIdle(); animIn();
     } else if (m.type === 'update') {
       for (const it of m.items) { const el = box.querySelector(`[data-id="${it.id}"]`); if (el) fill(el, { ...items.find(x => x.id === it.id), ...it }); }
@@ -237,6 +252,8 @@ ipcRenderer.on('menu', (_e, json) => {
  * 只有说话气泡时，只有气泡本身接收鼠标，其余全部穿透 */
 function inEl(e, el) { const r = el.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; }
 document.addEventListener('mousemove', e => {
+  lastPos = { x: e.screenX, y: e.screenY };
+  { const el = e.target.closest && e.target.closest('.mb'); if (el && el._it) tryExpand(el, el._it); }
   const overMew = Math.hypot(e.clientX - mewL.x, e.clientY - mewL.y) <= mewL.r;
   if (ctxOpen) { clearTimeout(leaveT); setIgnore(overMew && !inEl(e, ctxEl)); }
   else if (menuOpen) {

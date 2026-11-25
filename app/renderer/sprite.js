@@ -119,8 +119,7 @@ document.addEventListener('mousemove', e => {
   setIgnore(!om);
   if (om !== hovering) {
     hovering = om; mew.hover(om); clearTimeout(hoverT);
-    // 鼠标放上去停一下（0.35 秒）就打开气泡，不用点（设置里可以关）；按着鼠标、拖动、正在说话时不打开
-    if (om && CFG.hoverMenu && !menuOn && !bubbleOn && !e.buttons) hoverT = setTimeout(() => { if (hovering && !menuOn && !drag && !bubbleOn) openMenu('root', true); }, 350);
+    // 1.8.1：鼠标放在精灵上不再打开气泡，点击才打开（悬停展开改在气泡层：停在分组气泡上自动展开下一级）
   }
 });
 document.addEventListener('mouseleave', () => { clearTimeout(hoverT); if (!drag) { setIgnore(true); if (hovering) { hovering = false; mew.hover(false); } } });
@@ -445,7 +444,7 @@ function menuItems(level) {
   return [...groups, ...g.items.map(it => ({ ...dyn(it), c: it.color || g.color, ring: 1 }))];
 }
 const kindOf = it => (it.go || it.act ? 'cat' : 'item');
-const wire = it => ({ id: it.id, icon: it.icon, label: it.label, tip: it.tip, c: it.c, n: it.n || 0, on: it.on, stay: !!it.stay, kind: kindOf(it), mini: !!it.mini, ...(it.meter ? { meter: it.meter } : {}) });
+const wire = it => ({ id: it.id, icon: it.icon, label: it.label, tip: it.tip, c: it.c, n: it.n || 0, on: it.on, stay: !!it.stay, kind: kindOf(it), mini: !!it.mini, go: !!it.go, ...(it.meter ? { meter: it.meter } : {}) });
 let ov = null, ovReady = false, ovPending = null, curItems = [];
 function overlayWin() {
   if (!remote || !win) return null;
@@ -474,6 +473,7 @@ ipcRenderer.on('jm-menu', (_e, json) => {
   const m = JSON.parse(json);
   if (m.type === 'ready') { ovReady = true; if (ovPending) { const p = ovPending; ovPending = null; sendOv(p); } }
   else if (m.type === 'click') onMenuClick(m.id);
+  else if (m.type === 'expand') { const it = curItems.find(x => x.id === m.id); if (menuOn && it?.go && menuLevel !== it.go) switchLevel(it.go); } // 鼠标停在分组气泡上：展开它的下一级（只展开，不收回）
   else if (m.type === 'ctx') onCtx(m.id);
   else if (m.type === 'closed') menuOn = false;
   else if (m.type === 'say-closed') bubbleOn = false;
@@ -504,7 +504,7 @@ function menuGeometry(list) {
 function showLevel(level, transition) {
   menuLevel = level; curItems = menuItems(level);
   const g = menuGeometry(curItems);
-  sendOv({ type: 'open', transition, hover: menuByHover, mew: g.mew, wa: g.wa, items: curItems.map((it, i) => ({ ...wire(it), sx: g.pts[i].x, sy: g.pts[i].y })) });
+  sendOv({ type: 'open', transition, hover: menuByHover, expand: CFG.hoverMenu !== false, mew: g.mew, wa: g.wa, items: curItems.map((it, i) => ({ ...wire(it), sx: g.pts[i].x, sy: g.pts[i].y })) });
   mew.puff && mew.puff(g.angles);
 }
 function openMenu(level = 'root', viaHover = false) {

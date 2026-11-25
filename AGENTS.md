@@ -231,7 +231,7 @@ test/                      node --test，全部用假服务和虚构样例
 - **色板只有一份**：`app/renderer/tokens.css`。主色粉（品牌、主要动作）、蓝（平台、编号、选中）、黑（文字、待办）、白（底面）；辅助色紫（专项、AI）、绿（成功）、橙（提醒、待处理）、红（危险、必填）。页面和 `theme.css` 里不写具体色值，只用变量；工作层级用 `.kd.project / .requirement / .todo / .program`（蓝 / 粉 / 黑 / 紫）。界面颜色不跟着形象变（`main.mjs` 的 `themeFor` 固定返回粉 + 蓝）。气泡分组颜色由 `catalog.mjs` 的 `snapColor` 对齐到 `PALETTE`。
 - 精灵窗口只移动、不改大小；新的浮层放进提示层（hud）。
 - **精灵怎么动**（1.7.0，参考 RunCat，`settings.sprite`，设置 › 气泡）：
-  - `hoverMenu`（默认开）：鼠标在精灵上停 0.35 秒就打开气泡；这样打开的，鼠标离开精灵和气泡 0.9 秒就收起（`hud.js` 的 `hoverMenu`）。刚悬停打开时点一下精灵不会收起。
+  - `hoverMenu`（默认开，1.8.1 改了含义）：**点精灵才打开气泡**（鼠标放在精灵上不打开）；气泡打开后，鼠标在分组气泡上停 0.22 秒就自动展开它的下一级，换到别的分组就切过去（只展开、不收回；`hud.js` 的 `tryExpand`，主进程不参与，`sprite.js` 收到 `expand` 后 `switchLevel`）。刚重新排过气泡、鼠标还没动过时不展开，免得气泡换位后落在鼠标下面来回切。
   - `motion`：`cpu`（默认）/ `cpu+mem`（两者平均）/ `off`。`app/main/sysload.mjs` 每 2 秒采样（CPU 扣掉 JM Desk 自己的占用、做平滑；macOS 内存按 vm_stat 的活动 + 联动 + 压缩页），`tempoFor` 映射成 1–3.5 倍速：三成以下正常，九成以上最快。`engine.mjs` 的 `tempo()` 让动画时间按倍速推进（翅膀、尾巴、小把戏都更快，忙时不打瞌睡）；`sprite.js` 自由飞时速度乘倍速、歇得更短，倍速 2 以上常常满屏快飞。系统设置里开了「减少动态效果」时不加速。
   - `flyCast`（1.8.0，默认开）：**边飞边放技能**。念力波 / 能量球 / 流星 / 电光 / 旋风（`engine.mjs` 的 `FXSKILL`）只放特效和小把戏，不打断飞行；飞着时爆发、爱心也不停下来（`sprite.js` 的 `castSkill` / `airCast`）。飞得快时隔 2.5–6 秒（除以倍速）有几率顺手放一个，电脑越忙放得越勤。「连招」满屏快飞、路上依次放五个技能。特效按真实时间播放（不跟倍速），正常混合、饱和色，浅色桌面上也看得清；颜色取形象包 manifest 的 `theme`。
   - **技能特效素材**：默认用代码画的贴图（光斑、光环、闪电、星星、旋风、拖尾），不随包带第三方素材。把 CC0 素材包（如 Kenney Particle Pack）的 PNG 放进 `DATA/extensions/fx/`，按文件名对上就替换：`flare_ / light_` → 光斑，`circle_0` → 光环，`spark_` → 闪电，`star_` → 星星，`twirl_` → 旋风，`trace_` → 拖尾（`main.mjs` 的 `FX_NAMES` / `fxFiles`）。用户放的素材只留在 `DATA`。
