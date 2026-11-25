@@ -38,20 +38,22 @@ async function load() {
   drawNav(); drawList();
   if (current) show(current);
 }
-function go(key) { view = key; localStorage.setItem('jmWorkView', key); current = null; q = ''; $('#q').value = ''; say(''); drawNav(); drawList(); const first = $('#rows .r'); if (first) show(first.dataset.id); else $('#detail').replaceChildren(h('div', { class: 'empty' }, '这里现在是空的')); }
+function go(key) { view = key; localStorage.setItem('jmWorkView', key); current = null; q = ''; $('#q').value = ''; say(''); drawNav(); drawList(); const first = $('#rows .r'); if (first) show(first.dataset.id); else { $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, '这里现在是空的')); } }
 
 /* ---------- 左：平台、我要处理的、平台结构 ---------- */
 function drawNav() {
   const S = sets(), P = B.platform, t = B.taxonomy || {};
-  const ni = (key, label, sub, n, hot) => h('div', { class: 'ni' + (view === key ? ' on' : ''), onclick: () => go(key) }, h('div', { class: 'l' }, h('b', { title: label }, label), sub ? h('small', {}, sub) : null),
+  const ni = (key, label, tip, n, hot) => h('div', { class: 'ni' + (view === key ? ' on' : ''), title: tip || label, onclick: () => go(key) }, h('span', { class: 'l' }, label),
     h('span', { class: 'c' + (n ? (hot ? ' hot' : '') : ' zero') }, String(n)));
-  const out = [h('div', { class: 'plat' }, h('div', { class: 'n' }, h('i', { class: P.linked ? '' : 'off' }), P.name),
-    h('small', {}, !P.linked ? '还没有关联：录入和推送都要先关联账号' : P.syncedAt ? '结构拉取于 ' + when(P.syncedAt) : '还没拉取过平台的结构'),
-    P.linked ? h('button', { disabled: syncing, onclick: sync, title: '读平台现在的产品线 › 平台产品 › 项目 › 需求，以平台为准' }, syncing ? '拉取中…' : '拉取最新') : h('button', { class: 'pri', onclick: () => ipcRenderer.send('panel:action', 'app.connect') }, '去关联')),
+  /* 列头：平台名 + 连接状态 + 拉取 */
+  $('#navhd').replaceChildren(h('i', { class: 'dot' + (P.linked ? '' : ' off'), title: P.linked ? '已关联' : '还没有关联' }), h('b', { class: 'grow' }, P.name),
+    P.linked ? h('button', { class: 'sm', disabled: syncing, onclick: sync, title: '读平台现在的产品线 › 平台产品 › 项目 › 需求，以平台为准' }, syncing ? '拉取中…' : '拉取最新')
+      : h('button', { class: 'sm pri', onclick: () => ipcRenderer.send('panel:action', 'app.connect') }, '去关联'));
+  const out = [h('div', { class: 'ln first' }, !P.linked ? '还没有关联：录入和推送都要先关联账号' : P.syncedAt ? '结构拉取于 ' + when(P.syncedAt) : '还没拉取过平台的结构'),
   h('div', { class: 'nh' }, '我要处理的'),
-  ni('inbox', '待录入', '从线索整理出、还没进平台', S.inbox.length, true),
+  ni('inbox', '待录入', '从线索整理出、还没进平台的项目和需求', S.inbox.length, true),
   ni('push', '待推送', '改过、还没推到平台', S.push.length, true),
-  ni('todo', '我的待办', '只在本机', S.todo.length, false),
+  ni('todo', '我的待办', '只在本机，不进平台', S.todo.length, false),
   S.program.length ? ni('program', '专项', '只在本机', S.program.length, false) : null,
   h('div', { class: 'nh' }, '平台结构')];
   const has = new Map(); for (const x of B.items) if (x.mp2) { const k = x.productId || ''; has.set(k, (has.get(k) || 0) + (isOpen(x) ? 1 : 0)); }
@@ -102,7 +104,8 @@ function drawList() {
     if (doneN) rows.push(h('div', { class: 'more', onclick: () => { showDone = !showDone; drawList(); } }, showDone ? '只看进行中的' : `显示已完成 / 已关闭的 ${doneN} 条`));
     empty = '这个平台产品下还没有项目和需求。';
   }
-  $('#mt').textContent = title; $('#mp').textContent = desc;
+  $('#mt').textContent = title; $('#mp').textContent = desc; $('#mp').title = desc;
+  const n = $('#rows') && rows.filter(r => r.classList?.contains('r')).length; $('#mc').textContent = n ? String(n) : ''; $('#mc').style.display = n ? '' : 'none';
   $('#rows').replaceChildren(...(rows.length ? rows : [h('div', { class: 'empty' }, k ? '没有找到' : empty)]));
 }
 
@@ -112,23 +115,26 @@ const sel = (pairs, cur) => h('select', {}, ...pairs.map(([v, n]) => h('option',
 const day = v => /^\d{4}-\d{2}-\d{2}/.test(String(v || '')) ? String(v).slice(0, 10) : '';
 async function show(id) {
   current = id; document.querySelectorAll('#rows .r').forEach(e => e.classList.toggle('on', e.dataset.id === id));
-  let w; try { w = await call('work:item', id); } catch (e) { $('#detail').replaceChildren(h('div', { class: 'empty' }, e.message)); current = null; return; }
+  let w; try { w = await call('work:item', id); } catch (e) { $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, e.message)); current = null; return; }
   if (current !== id) return;
-  const body = w.mp2 ? platformDetail(w) : (w.level === 'project' || w.level === 'requirement') ? intakeDetail(w) : localDetail(w);
-  const note = flash && flash.id === id ? h('div', { class: flash.cls === 'err' ? 'err' : 'ok', style: 'margin:0 0 8px' }, flash.text) : null; flash = null;
-  $('#detail').replaceChildren(...[note, ...body, ...tail(w)].flat().filter(Boolean));
+  const d = w.mp2 ? platformDetail(w) : (w.level === 'project' || w.level === 'requirement') ? intakeDetail(w) : localDetail(w);
+  const note = flash && flash.id === id ? h('div', { class: 'flash ' + (flash.cls === 'err' ? 'bad' : 'good') }, flash.text) : null; flash = null;
+  /* 列头：位置（面包屑）+ 次要操作；下面一张张卡片 */
+  $('#dhd').replaceChildren(h('span', { class: 'crumb grow', title: d.crumb }, d.crumb), ...(d.tools || []).filter(Boolean));
+  $('#detail').replaceChildren(h('div', { class: 'dwrap' }, ...[note, ...d.body, ...tail(w)].flat().filter(Boolean)));
+  $('#detail').scrollTop = 0;
 }
 const done = async (id, text, cls) => { flash = { id, text, cls }; await load(); };
+const card = (title, ...kids) => h('section', { class: 'box' }, title ? h('h4', {}, ...[].concat(title)) : null, ...kids);
+const WHO = { ai: 'AI', me: '我', 'local-ai': '本机 AI', assistant: '助手' };
 function tail(w) {
   return [
-    w.children.length ? h('div', { class: 'sec' }, `下面的 ${w.children.length} 条`) : null,
-    ...w.children.map(c => h('div', { class: 'r' + (c.status !== 'open' ? ' done' : ''), onclick: () => { jump = true; current = c.id; load(); } },
+    w.children.length ? card([`下面的工作`, h('em', {}, String(w.children.length))], h('div', { class: 'list' }, ...w.children.map(c => h('div', { class: 'r' + (c.status !== 'open' ? ' done' : ''), onclick: () => { jump = true; current = c.id; load(); } },
       c.level === 'todo' ? h('input', { type: 'checkbox', class: 'ck', checked: c.status === 'done', onclick: e => e.stopPropagation(), onchange: e => setTodo(c.id, e.target.checked) }) : null,
-      h('span', { class: 'kd ' + c.level }, KIND[c.level]), h('span', { class: 'ti' }, c.title), h('span', { class: 'x' }, STATUS[c.status]))),
-    w.sources.length ? h('div', { class: 'sec' }, `依据：${w.sources.length} 条线索`) : null,
-    ...w.sources.map(s => h('div', { class: 'src', title: '在「线索」里看原文', onclick: () => ipcRenderer.send('list:open', s.id) }, h('div', {}, `${s.sourceLabel} · ${s.title}`), h('small', {}, s.preview))),
-    (w.history || []).length ? h('div', { class: 'sec' }, '变更记录') : null,
-    h('div', { class: 'hist' }, ...(w.history || []).slice().reverse().slice(0, 12).map(x => h('div', {}, `${when(x.at)} · ${x.by === 'ai' ? 'AI' : x.by === 'me' ? '我' : x.by === 'local-ai' ? '本机 AI' : x.by === 'assistant' ? '助手' : '系统'}${(x.fields || []).length ? ' · ' + x.fields.map(f => FLD[f] || f).join('、') : ''}${x.note ? ' · ' + x.note : ''}`)))];
+      h('span', { class: 'kd ' + c.level }, KIND[c.level]), h('span', { class: 'ti' }, c.title), h('span', { class: 'x' }, STATUS[c.status]))))) : null,
+    w.sources.length ? card(['依据的线索', h('em', {}, String(w.sources.length))], ...w.sources.map(s => h('div', { class: 'src', title: '在「线索」里看原文', onclick: () => ipcRenderer.send('list:open', s.id) }, h('b', {}, `${s.sourceLabel} · ${s.title}`), h('small', {}, s.preview)))) : null,
+    (w.history || []).length ? card('变更记录', h('ol', { class: 'tl' }, ...(w.history || []).slice().reverse().slice(0, 12).map(x => h('li', {},
+      h('time', {}, when(x.at)), h('span', {}, h('b', {}, WHO[x.by] || '系统'), (x.fields || []).length ? ' 改了 ' + x.fields.map(f => FLD[f] || f).join('、') : '', x.note ? h('small', {}, x.note) : null))))) : null];
 }
 
 /* 平台上的记录：按平台的字段展示；保存只存本机，核对改动后再推送 */
@@ -165,26 +171,27 @@ function platformDetail(w) {
   };
   drawPend();
   const parent = w.crumbs.filter(c => c.level === 'project').at(-1);
-  return [
-    h('div', { class: 'crumb' }, `${P.name} › ${[w.line, w.product].filter(Boolean).join(' › ') || '没挂平台产品'}`),
+  return { crumb: `${P.name} › ${[w.line, w.product].filter(Boolean).join(' › ') || '没挂平台产品'}`,
+    tools: [h('button', { class: 'sm', onclick: () => ipcRenderer.invoke('work:mp2-open', w.mp2) }, '在平台上查看'),
+      h('button', { class: 'sm ghost', title: '只取消本机的对应关系，不改平台', onclick: async () => { try { await call('work:unbind', w.id); await done(w.id, '已解除对应，这条回到「待录入」。'); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '解除对应')],
+    body: [
     h('h2', {}, w.title),
     h('div', { class: 'facts' }, h('span', { class: 'kd ' + w.level }, isReq ? '原始需求' : '研发项目'), h('span', { class: 'code' }, w.mp2.code || '#' + w.mp2.id),
       st ? h('span', { class: 'tag' + (st.found === false ? ' warn' : '') }, st.label) : null, h('span', {}, '以平台为准')),
     pend,
-    h('div', { class: 'f' }, ...F(isReq ? '需求标题' : '项目名称', fld.title, true),
+    card(isReq ? '需求信息' : '项目信息', h('div', { class: 'f' }, ...F(isReq ? '需求标题' : '项目名称', fld.title, true),
       ...(isReq ? [...F('需求描述', fld.summary, true), ...F('平台产品', fld.product, true), ...F('优先级', fld.priority), ...F('需求类型', fld.type), ...F('预期完成时间', fld.deadline)]
         : [...F('平台产品', h('div', { class: 'ro' }, `${w.product || '—'}（创建后固定）`)), ...F('计划结束', fld.deadline)]),
       ...F('状态', h('div', { class: 'ro' }, `${st?.label || STATUS[w.status]}（由平台的流程推进）`)),
       ...(isReq ? F('所属项目', h('div', { class: 'ro' }, parent ? parent.title : '不在项目里（由平台的功能和需求计划决定）')) : [])),
-    h('div', { class: 'act' }, h('button', { class: 'pri', onclick: save }, '保存改动'), h('button', { onclick: () => ipcRenderer.invoke('work:mp2-open', w.mp2) }, '在平台上查看'),
-      h('button', { class: 'ghost', title: '只取消本机的对应关系，不改平台', onclick: async () => { try { await call('work:unbind', w.id); await done(w.id, '已解除对应，这条回到「待录入」。'); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '解除对应')), m,
-    h('div', { class: 'box' }, h('h4', {}, '平台上的进度'),
+      h('div', { class: 'act in-f' }, h('button', { class: 'pri', onclick: save }, '保存改动'), h('span', { class: 'muted' }, '先存在本机，核对后再推送')), m),
+    h('section', { class: 'box' }, h('h4', {}, '平台上的进度'),
       ...[w.mp2.kind === 'project' && st?.start ? h('p', {}, `项目周期 ${st.start} ~ ${st.end || '未定'}`) : null,
         st?.plans?.length ? h('ul', {}, ...st.plans.map(p => h('li', {}, `需求计划「${p.name || p.code}」：${p.label}${p.start ? `，排期 ${p.start} ~ ${p.end || '未定'}` : '，未排期'}`))) : null,
         isReq && st?.found && !st.plans?.length ? h('p', {}, '还没进入需求计划') : null,
         st?.functions?.length ? h('p', {}, '所属功能：' + st.functions.map(f => f.title + (f.via === 'direct' ? '（未进计划）' : '')).join('、')) : null,
         !st ? h('p', {}, '还没读取过') : null].filter(Boolean),
-      h('div', { class: 'act' }, st?.at ? h('span', { class: 'muted' }, '读取于 ' + when(st.at)) : null, h('button', { onclick: async () => { try { const r = await call('work:mp2-refresh'); await done(w.id, `已刷新 ${r.updated} 条的进度`); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '刷新进度')))];
+      h('div', { class: 'act' }, h('button', { class: 'sm', onclick: async () => { try { const r = await call('work:mp2-refresh'); await done(w.id, `已刷新 ${r.updated} 条的进度`); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '刷新进度'), st?.at ? h('span', { class: 'muted' }, '读取于 ' + when(st.at)) : null))] };
 }
 
 /* 待录入：选好录成什么、挂在哪个平台产品下，按平台的字段补全，确认后录入；或者对应到平台上已有的记录 */
@@ -233,19 +240,19 @@ function intakeDetail(w) {
       find.replaceChildren(h('div', { class: 'box' }, h('h4', {}, '对应平台上已有的项目'), h('div', { class: 'act' }, pick, h('button', { onclick: () => { const p = list.find(x => String(x.mp2Id) === pick.value); if (p) bindTo({ id: p.mp2Id, code: p.code }); } }, '对应'))));
     }
   };
-  return [
-    h('div', { class: 'crumb' }, `待录入 › ${P.name}`),
+  return { crumb: `待录入 › ${P.name}`,
+    tools: [h('button', { class: 'sm ghost', title: '不录入了，从待录入里拿掉', onclick: async () => { try { await call('work:edit', w.id, { status: 'dropped' }, { push: false }); current = null; await load(); $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, '已标为不做了')); } catch (e) { fail(e); } } }, '不做了')],
+    body: [
     h('h2', {}, w.title),
     h('div', { class: 'facts' }, h('span', { class: 'tag warn' }, '还没进平台'), w.who ? h('span', {}, '提出：' + w.who) : null, w.deadline_quote ? h('span', { title: w.deadline_verified ? '' : '原文里没找到这句，待确认' }, `交期原话：「${w.deadline_quote}」`) : null),
     !P.linked ? h('div', { class: 'box warn' }, h('h4', {}, `还没有关联${P.name}`), h('p', {}, '关联账号后才能录入。'), h('div', { class: 'act' }, h('button', { class: 'pri', onclick: () => ipcRenderer.send('panel:action', 'app.connect') }, '去关联'))) : null,
     s?.action === 'bind' ? h('div', { class: 'box hot' }, h('h4', {}, 'AI 认为平台上已经有这条'), h('p', {}, `${s.code || '#' + s.mp2Id}「${s.title}」${s.reason ? '（' + s.reason + '）' : ''}`),
       h('div', { class: 'act' }, h('button', { class: 'pri', onclick: async () => { try { await call('work:mp2-apply', w.id); await call('work:mp2-refresh').catch(() => null); jump = true; await done(w.id, '已对应到平台记录。'); } catch (e) { fail(e); } } }, '就是它，对应'),
         h('button', { onclick: async () => { try { await call('work:mp2-dismiss', w.id); await done(w.id, '好，按新记录来录。'); } catch (e) { fail(e); } } }, '不是，要新录'))) : null,
-    h('div', { class: 'f' }, ...F('录成', kind), ...F('平台产品', h('div', {}, fld.product, hint), true), ...F(isReq ? '需求标题' : '项目名称', fld.title, true), ...F(isReq ? '需求描述' : '项目说明', fld.summary, isReq),
+    card(`录入到${P.name}`, h('div', { class: 'f' }, ...F('录成', kind), ...F('平台产品', h('div', { class: 'stack' }, fld.product, hint), true), ...F(isReq ? '需求标题' : '项目名称', fld.title, true), ...F(isReq ? '需求描述' : '项目说明', fld.summary, isReq),
       ...(isReq ? [...F('优先级', fld.priority), ...F('需求类型', fld.type), ...F('预期完成时间', fld.deadline)] : F('计划结束', fld.deadline))),
-    h('div', { class: 'act' }, submit, h('button', { onclick: openFind }, '平台上已有，去对应'),
-      h('button', { class: 'ghost', onclick: async () => { try { await call('work:edit', w.id, { status: 'dropped' }, { push: false }); current = null; await load(); $('#detail').replaceChildren(h('div', { class: 'empty' }, '已标为不做了')); } catch (e) { fail(e); } } }, '不做了')),
-    m, find];
+      h('div', { class: 'act in-f' }, submit, h('button', { onclick: openFind }, '平台上已有，去对应')), m),
+    find] };
 }
 
 /* 只在本机的：待办、专项 */
@@ -255,13 +262,13 @@ function localDetail(w) {
     parentId: h('select', {}, h('option', { value: '' }, isTodo ? '日常（不挂在哪条需求下）' : '（无上级）'), ...w.parents.map(p => h('option', { value: p.id, selected: w.parentId === p.id }, `${KIND[p.level]} · ${p.title}`))),
     status: sel(Object.entries(STATUS), w.status) };
   const save = async () => { try { await call('work:edit', w.id, { title: fld.title.value.trim() || w.title, summary: fld.summary.value, deadline: fld.deadline.value || null, parentId: fld.parentId.value || null, status: fld.status.value }, { push: false }); await done(w.id, '已保存。'); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } };
-  return [
-    h('div', { class: 'crumb' }, w.crumbs.length ? w.crumbs.map(c => `${KIND[c.level]} · ${c.title}`).join(' › ') : isTodo ? '我的待办 › 日常' : '专项'),
+  return { crumb: w.crumbs.length ? w.crumbs.map(c => `${KIND[c.level]} · ${c.title}`).join(' › ') : isTodo ? '我的待办 › 日常' : '专项',
+    tools: [isTodo ? h('button', { class: 'sm', title: '这其实是产品要做的一件事：改成需求，进「待录入」', onclick: async () => { try { await call('work:edit', w.id, { level: 'requirement' }, { push: false }); jump = true; await done(w.id, '已改成需求，在「待录入」里补全后录入平台。'); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '这其实是一条需求') : null],
+    body: [
     h('h2', {}, w.title),
     h('div', { class: 'facts' }, h('span', { class: 'kd ' + w.level }, KIND[w.level]), h('span', {}, '只在本机，不进平台'), w.who ? h('span', {}, '来自：' + w.who) : null),
-    h('div', { class: 'f' }, ...F('标题', fld.title), ...F('备注', fld.summary), ...F('截止', fld.deadline), ...F(isTodo ? '为了哪条' : '上级', fld.parentId), ...F('状态', fld.status)),
-    h('div', { class: 'act' }, h('button', { class: 'pri', onclick: save }, '保存'),
-      isTodo ? h('button', { title: '这其实是产品要做的一件事：改成需求，进「待录入」', onclick: async () => { try { await call('work:edit', w.id, { level: 'requirement' }, { push: false }); jump = true; await done(w.id, '已改成需求，在「待录入」里补全后录入平台。'); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '这其实是一条需求') : null), m];
+    card(isTodo ? '待办' : '专项', h('div', { class: 'f' }, ...F('标题', fld.title), ...F('备注', fld.summary), ...F('截止', fld.deadline), ...F(isTodo ? '为了哪条' : '上级', fld.parentId), ...F('状态', fld.status)),
+      h('div', { class: 'act in-f' }, h('button', { class: 'pri', onclick: save }, '保存')), m)] };
 }
 
 /* ---------- 顶部动作 ---------- */

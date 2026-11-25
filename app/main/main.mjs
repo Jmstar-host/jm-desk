@@ -75,7 +75,8 @@ function scanCharacters() {
       if (m.kind === 'gltf' && !/\.(glb|gltf)$/i.test(entry)) continue;
       if (m.kind === 'procedural' && !/\.mjs$/i.test(entry)) continue;
       found[id] = { id, name: String(m.name || id).slice(0, 30), author: String(m.author || '').slice(0, 40), license: String(m.license || '').slice(0, 80), kind: m.kind,
-        url: pathToFileURL(entry).href, boneMap: m.boneMap && typeof m.boneMap === 'object' ? m.boneMap : null, size: Number(m.size) || null, params: m.params || null, theme: Array.isArray(m.theme) ? m.theme.slice(0, 2).map(String) : null };
+        url: pathToFileURL(entry).href, boneMap: m.boneMap && typeof m.boneMap === 'object' ? m.boneMap : null, size: Number(m.size) || null, params: m.params || null, theme: Array.isArray(m.theme) ? m.theme.slice(0, 2).map(String) : null,
+        motion: m.motion && typeof m.motion === 'object' ? Object.fromEntries(['tail', 'speed', 'ear', 'curl'].filter(k => Number.isFinite(+m.motion[k])).map(k => [k, Math.max(0, Math.min(10, +m.motion[k]))])) : null };
     } catch {}
   }
   CHARACTERS = found;
@@ -95,7 +96,7 @@ function loadLayout() {
 function loadCharacter() {
   scanCharacters();
   const c = store.read('character.json', { id: 'lumi', params: {} }), id = CHARACTERS[c.id] ? c.id : 'lumi', ch = CHARACTERS[id];
-  return { id, params: sanitizeParams(c.params), pack: ch.builtin ? null : { id, kind: ch.kind, url: ch.url, boneMap: ch.boneMap, size: ch.size, params: ch.params } };
+  return { id, params: sanitizeParams(c.params), pack: ch.builtin ? null : { id, kind: ch.kind, url: ch.url, boneMap: ch.boneMap, size: ch.size, params: ch.params, motion: ch.motion || null } };
 }
 function sanitizeParams(p = {}) {
   const o = {};

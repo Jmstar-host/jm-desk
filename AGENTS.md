@@ -52,6 +52,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `kind: "procedural"`：`entry` 是一个 `.mjs`，导出 `build(THREE, params) → { root, bones, update(t, { sleepy, cast }) }`。
   - `kind: "gltf"`：`entry` 是 `.glb`，可以写 `boneMap`（模型骨骼名 → 统一骨骼名）、`size`、`theme: ["#a1", "#a2"]`（面板主色）。
   - 统一骨骼名：`Spine1 Head LEar REar LArm RArm LForeArm RForeArm Tail1..Tail7`，缺的骨骼会跳过。
+  - 动作幅度：导入的 glTF 模型默认收敛（整条尾巴的摆幅按节数平分、睡着时尾巴不往外卷、不抖耳朵），避免长尾巴来回甩看着像抽动；manifest 可写 `motion: { tail, speed, ear, curl }` 调整（`engine.mjs` 的 `MOTION`）。
 - **形象库**（`app/main/gallery.mjs`，「设置 › 形象」）：列表来自 `app/builtin/characters.json`（随包分发，只能放原创形象，目前为空）和 `DATA/character-sources.json`（用户自己维护）。下载只接受 https，下载后校验 glTF 2.0，上限 60 MB。**第三方角色的链接只能放在用户的 `DATA` 里**。
 
 ## 3. 三个维度和工作体系

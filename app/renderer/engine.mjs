@@ -135,9 +135,14 @@ export function createSprite(host, opts = {}) {
    *   procedural：入口模块导出 build(THREE, params) → { root, bones, update } */
   const pack = opts.pack || null;
   const bones = {}, rest = {};
+  /* 动作幅度：内置形象按原样（tail 为空）；tail 是整条尾巴的总摆幅系数（按节数平分）；导入的 glTF 模型更收敛。形象包的 manifest 可以写 motion: { tail, speed, ear, curl } 覆盖 */
+  const gltfPack = pack && pack.kind === 'gltf';
+  const MOTION = { tail: gltfPack ? 2.2 : null, speed: gltfPack ? 0.7 : 1, ear: gltfPack ? 0 : 1, curl: gltfPack ? 0 : 1, ...(pack && pack.motion || {}) };
+  let tailBones = 7;
   let lumi = null;
   const adopt = (map, root, name) => {
     for (const [k, o] of Object.entries(map)) { bones[k] = o; rest[k] = o.quaternion.clone(); }
+    tailBones = Object.keys(bones).filter(k => /^Tail\d$/.test(k)).length || 7;
     holder.add(root); stat.loaded = 1; stat.bones = Object.keys(bones).length; stat.character = name;
   };
   const useLumi = () => { lumi = buildLumi(THREE, opts.palette); lumi.root.scale.multiplyScalar(1.25); adopt(lumi.bones, lumi.root, 'lumi'); };
@@ -257,9 +262,12 @@ export function createSprite(host, opts = {}) {
     root.position.y += lift;
 
     // ---- 骨骼 ----
-    const tailSpeed = (2.2 + c * 2 + (tr ? 1.5 : 0)) * (1 - zz * 0.6);
-    for (let n = 1; n <= 7; n++) pose('Tail' + n, Math.sin(t * tailSpeed - n * 0.55) * (0.18 + c * 0.1) + tailCurl * 0.35 + zz * 0.25, Math.cos(t * 1.6 - n * 0.5) * 0.14, 0);
-    const twitch = Math.max(0, Math.sin(t * 0.9) - 0.94) * 6;
+    /* 尾巴：每节的摆动是叠加的，节数越多尾巴甩得越大。内置 Lumi 按原样；导入的模型（尾巴往往又长又细）把整条尾巴的摆幅限制在 MOTION.tail 以内、
+     * 睡着时不再往外卷、频率放慢，否则尾巴会在「藏在身后」和「甩到一边」之间来回，看上去像原地抽动 */
+    const tailSpeed = (2.2 + c * 2 + (tr ? 1.5 : 0)) * (1 - zz * 0.6) * MOTION.speed;
+    const tk = MOTION.tail == null ? 1 : MOTION.tail / (tailBones || 1);
+    for (let n = 1; n <= 7; n++) pose('Tail' + n, (Math.sin(t * tailSpeed - n * 0.55) * (0.18 + c * 0.1) + tailCurl * 0.35 + zz * 0.25 * MOTION.curl) * tk, Math.cos(t * 1.6 * MOTION.speed - n * 0.5) * 0.14 * tk, 0);
+    const twitch = Math.max(0, Math.sin(t * 0.9) - 0.94) * 6 * MOTION.ear;
     pose('LEar', -earUp * 0.2, 0, twitch * 0.25 - zz * 0.3); pose('REar', -earUp * 0.2, 0, -twitch * 0.25 + zz * 0.3);
     pose('LArm', 0, 0, armL + 0.35 * c); pose('RArm', 0, 0, armR - 0.35 * c);
     pose('LForeArm', 0, foreL - 0.5 * c, 0); pose('RForeArm', 0, foreR + 0.5 * c + wave, 0);
