@@ -23,7 +23,7 @@
 ] }
 ```
 
-- 分组可以写 `action`（一个 `cmd` 类动作，如 `app.meeting`）而不写 `items`：第一层点一下直接执行，不展开第二层（1.4.2，默认的「会议」就是这样）。布局里的 `seen` 记着迁移时加过的默认分组，用户删掉后不再加回来。
+- 分组可以写 `action`（一个 `cmd` 类动作）而不写 `items`：第一层点一下直接执行，不展开第二层（1.4.2）。默认布局里现在没有这种分组。
 - `groups` 是内圈分组，1–6 个；`items` 是点开分组后外圈的气泡，每组最多 8 个，每个动作最多出现一次。**必须保留 `app.settings`**，否则用户改不回来。
 - `label` 1–5 个字；`id` 用小写英文；`color` 是两个 `#rrggbb`，只能用色板里的颜色（其他颜色会被对齐到最近的一种，见界面约定）。
 - `icon` 只能从这些里选：`magic mail sliders portal burst orbit dash heart loop smile doc check chart inbox quill box wing moon pin corner bell`
@@ -33,13 +33,12 @@
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
 | `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的三个页面）、主窗口（上次看的页面） | 命令 |
-| `app.meeting` | 会议纪要（打开助手里的会议纪要） | 命令 |
 | `app.peers` | 搬运（去好友桌面找资料，代码里叫 peers / 串门） | 面板 |
 | `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |
 | `mail.open` `mail.compose` `mail.stats` | 邮箱 写邮件 未读 | 邮箱（调起本机邮件客户端） |
 | `toggle.roam` `place.corner` | 自由飞 右下角 | 开关 / 位置 |
 
-**1.3.0 去掉的入口**（`catalog.mjs` 的 `MOVED`）：汇总、待办、需求池、邮件汇报并进工作台；问知识并进助手；收集并进线索；平台、接入、模型、形象是设置里的分页。旧的 `layout.json` 启动时自动迁移（`migrateLayout`，原文件备份为 `layout.json.bak-1.3.0`）；代码或外部 AI 还用旧 id 时，`runAction` / `openPanel` 按 `MOVED` 转过去，不报错。新加功能先想清楚放进哪个现有页面，不要再加平行入口。
+**去掉的入口**（`catalog.mjs` 的 `MOVED`）：1.5.2 去掉本机会议纪要（`app.meeting` 转到线索，旧布局第一层的「会议」分组迁移时删掉；会议内容走飞书会议纪要，作为线索收进来）。1.3.0：汇总、待办、需求池、邮件汇报并进工作台；问知识并进助手；收集并进线索；平台、接入、模型、形象是设置里的分页。旧的 `layout.json` 启动时自动迁移（`migrateLayout`，原文件备份为 `layout.json.bak-1.3.0`）；代码或外部 AI 还用旧 id 时，`runAction` / `openPanel` 按 `MOVED` 转过去，不报错。新加功能先想清楚放进哪个现有页面，不要再加平行入口。
 
 新增动作的做法：在 `catalog.mjs` 的 `CATALOG` 登记，再在 `main.mjs` 的 `runAction`（面板 / 命令）或 `sprite.js` 的技能里实现。改完自查：
 
@@ -131,7 +130,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - **怎么派活**：对话工作台新对话的「对象」选执行项目，每一轮就是一次执行（会话的 `target = { kind: 'project', id }`）；Codex 用 `exec resume <会话号>` 接着上一次，接不上或用 DSH 时把前几轮要点写进任务。助手也可以自己转派：内置工具 `list_exec_projects`、`run_exec_project`（写操作，先确认；标了 `assistantOnly`，不经本机 MCP 暴露，免得执行者再派执行者）。
   - **回调 JM Desk**：打开了「让本机 AI 控制 JM Desk」时，Codex 这次运行会带上本机 MCP 端点（`-c mcp_servers.jm_desk.url=…`，令牌只走环境变量），可以读写工作区，写操作照旧弹窗确认。DSH 暂时没有这条通道。
   - Codex 的 `--json` 事件解析成和助手一样的步骤（命令、改文件、MCP 工具、中途说明）；用量记到 `usage.jsonl` 的 `exec-codex`。
-- **会议纪要**（1.4.0，`app/main/meeting.mjs`，界面 `renderer/meeting-ui.js`，在助手顶栏「会议纪要」）：本机 whisper.cpp 转写，免费、不限时长，和 DSH NEXT 同一做法——whisper-stream 出实时字幕，同时 ffmpeg 录一条临时音频，结束后 whisper-cli 整段转写，音频转完即删。麦克风按名字找 Mac 内置的（`pickMic`：排除连续互通的「“某某”的麦克风」和 Teams、有道、Jump Desktop 等虚拟声卡）。实时字幕程序（whisper-stream，SDL）的设备编号和 ffmpeg 的顺序不一样，开始前让它用不存在的模型列一遍设备（`parseSdlDevices`，约 1.5 秒），按名字对上同一个麦克风（1.5.1 修：之前直接用 ffmpeg 的编号，开到虚拟声卡，没有实时字幕）。AI 整理出摘要 / 决策 / 待办 / 可能的需求（每条带原话），作为 `meeting_local` 线索进线索池，状态 `local`（只在本机，在线索里点「送到需求管理平台」才送，送时按 `feishu_meeting` 类型）。依赖：`brew install whisper-cpp ffmpeg` + 模型（`DATA/models/` 或 `~/.jmstar-meeting/models/`，优先 large-v3-turbo-q5_0，界面可一键从镜像下载它）。1.4.3：实时字幕按 DSH NEXT 的参数滚动转写（2 秒一步、8 秒窗口），同一句原地修订、说完才定稿（`liveParser`），常见繁体字转简体，静音幻听（字幕署名、频道宣传、语气词、整段重复）丢掉；正式逐字稿用简体提示词 + beam search + `--suppress-nst`。Windows 暂不支持。打包时 `NSMicrophoneUsageDescription` 写在 `package.json` 的 `build.mac.extendInfo`。
+- **会议纪要**：1.4.0–1.5.1 有过本机 whisper 转写，1.5.2 去掉了——每台机器要装 whisper-cpp、ffmpeg 和 570 MB 模型，只支持 Mac，麦克风和虚拟声卡问题多，又和飞书会议 / 妙记、DSH NEXT 重复。会议内容走飞书会议纪要（`src/sources/feishu.mjs` 的 `feishu_meeting`），作为线索收进来；以前存下的 `meeting_local` 线索照常显示。不要再加回本机录音转写。
 - **问知识**：在助手里问。会话里有 `knowledge: true` 的接入时，系统提示自动加上检索规则（先 `business_catalog` 确认平台，再带 platform 检索，必要时异步检索）。
 - **导入**：可以从 Claude Code、Claude Desktop、Cursor、Codex 的配置里导入 MCP，密钥直接加密保存，不经过界面。
 
@@ -187,7 +186,6 @@ app/main/main.mjs          主进程：窗口、托盘、IPC、面板、升级�
 app/main/catalog.mjs       动作目录、默认布局、布局校验
 app/main/services.mjs      汇总、待办、需求池、线索、收集（调用 src/）
 app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定、证据链
-app/main/meeting.mjs       会议纪要：本机 whisper 实时字幕 + 整段转写、AI 整理、进线索池
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
 app/main/agent.mjs         助手运行时：converse（多轮对话，助手页用）、run（单轮，搬运接待访客用）

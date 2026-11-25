@@ -10,7 +10,6 @@ export const CATALOG = {
   'skill.wave':     { kind: 'skill', icon: 'smile', label: '挥手', tip: '打个招呼' },
   /* 主窗口（1.3.0 起对话、工作台、线索合进一个窗口，左边切换） */
   'app.desk':       { kind: 'cmd', icon: 'chart', label: '主窗口', tip: '助手、工作台、线索都在这个窗口里' },
-  'app.meeting':    { kind: 'cmd', icon: 'quill', label: '会议纪要', tip: '用本机麦克风记录会议，结束后整理成摘要、决策、待办' },
   'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '和 AI 多轮对话：查资料、问知识库、调用平台办事、交给本机执行者' },
   'app.work':       { kind: 'cmd', icon: 'chart', label: '工作台', tip: '专项 › 项目 › 需求 › 待办，汇总线索、勾掉待办、对齐需求管理平台', count: 'tasks' },
   'app.clues':      { kind: 'cmd', icon: 'inbox', label: '线索', tip: '收到的邮件、飞书、纪要原文，信息源和搬运到需求管理平台' },
@@ -30,7 +29,6 @@ export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
     { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
-    { id: 'meet', label: '会议', icon: 'quill', color: ['#e11d48', '#ec4899'], tip: '记录会议，结束后整理纪要', action: 'app.meeting', items: [] },
     { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、搬运', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
     { id: 'mail', label: '邮箱', icon: 'mail', color: ['#3b82f6', '#8b5cf6'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
     { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], tip: '设置、提醒、精灵位置', items: ['app.settings', 'app.reminders', 'toggle.roam', 'place.corner'] },
@@ -40,6 +38,7 @@ export const DEFAULT_LAYOUT = {
 /* 1.3.0 去掉的入口 → 现在去哪里。旧的 layout.json、精灵气泡、外部 AI、旧版本代码里的链接都按这里转过去：
  *   [动作 id, 设置页的分页]。待办 / 需求池 / 汇总并进工作台，问知识并进助手，收集并进线索，平台 / 接入 / 模型 / 形象是设置里的分页。 */
 export const MOVED = {
+  'app.meeting': ['app.clues'], // 1.5.2 去掉本机会议纪要：旧入口转到线索（飞书会议纪要在那里）
   'app.summary': ['app.work'], 'app.tasks': ['app.work'], 'app.pool': ['app.work'], 'mail.report': ['app.work'],
   'app.knowledge': ['app.agent'], 'app.collect': ['app.clues'],
   'app.connect': ['app.settings', 'account'], 'app.integrations': ['app.settings', 'integrations'], 'app.models': ['app.settings', 'model'], 'app.character': ['app.settings', 'character'],
@@ -62,10 +61,9 @@ export function migrateLayout(l) {
     if (g.id === 'work' && /汇总|待办|需求池|知识/.test(g.tip || '')) { changed = true; return { ...g, tip: '助手、工作台、线索、搬运', items }; }
     return { ...g, items };
   }).filter(g => g.items.length || g.action || (changed = true, false));
-  // 1.4.2：第一层加「会议」（直接打开会议纪要）。只加一次，用户删掉后不再加回来（seen 记着）
-  const seen = new Set(l.seen || []);
-  if (!seen.has('meet')) { seen.add('meet'); changed = true; if (groups.length < 6 && !groups.some(g => g.action === 'app.meeting' || g.items.includes('app.meeting') || g.id === 'meet')) groups.splice(Math.min(1, groups.length), 0, { ...DEFAULT_LAYOUT.groups.find(g => g.id === 'meet'), items: [] }); }
-  return { layout: { ...l, groups, seen: [...seen] }, changed };
+  // 1.5.2 去掉了本机会议纪要：1.4.2 加到第一层的「会议」分组删掉（会议内容走飞书会议纪要，作为线索收进来）
+  const kept = groups.filter(g => g.action !== 'app.meeting'); if (kept.length !== groups.length) changed = true;
+  return { layout: { ...l, groups: kept }, changed };
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;

@@ -7,7 +7,6 @@ import * as mail from './mail.mjs';
 import { packSignals } from './summary.mjs';
 import * as wm from './workmodel.mjs';
 import * as digest from './digest.mjs';
-import * as meeting from './meeting.mjs';
 const { store: desk } = pipeline;
 
 /* 读 Mailspring 库（node:sqlite 是同步的）放到工作线程里，不卡住主进程和精灵动画；工作线程起不来时退回直接调用 */
@@ -381,18 +380,6 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       line: req?.line || null, product: req?.product || null, deadline: /^\d{4}-\d{2}-\d{2}/.test(deadline || '') ? deadline : null, deadline_verified: false, priority: 'medium', status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'assistant', fields: ['created'], note: '助手新建' }] };
     w.push(it); saveWork(w); return it;
   }
-  /* 会议纪要：AI 整理后作为一条「本机会议」线索进线索池，状态 local（只在本机，不自动送平台；在线索里点「恢复搬运」才送） */
-  async function saveMeeting(m) {
-    let minutes = null, aiError = null;
-    try { minutes = await chatJSON(meeting.buildMinutesPrompt(), `会议主题：${m.topic || '（没填）'}\n时长：${Math.round(m.durationSec / 60)} 分钟\n逐字稿：\n<<<\n${m.transcript.slice(0, 60000)}\n>>>`); }
-    catch (e) { aiError = e.message; }
-    const sig = meeting.meetingSignal(m, minutes);
-    desk.putSignal(sig); desk.updateSignal(sig.id, { status: 'local' });
-    desk.log('meeting', `会议纪要 · ${sig.title.slice(0, 28)}（${Math.round(m.durationSec / 60)} 分钟）`, { signal: sig.id });
-    return { id: sig.id, title: sig.title, minutes, aiError, chars: m.transcript.length };
-  }
-  /* 把指定的线索交给 AI 整理成工作（会议纪要「整理进工作台」用）；和「汇总新线索」同一套抽取与合并 */
-  const summarizeMeetings = () => summarize({ sources: ['meeting_local'], hours: 24 * 14, refresh: false });
   /* AI 按线索补全平台字段：每个字段给出值和原话出处；线索里没有的列进 missing（界面上标「需要人工补充」）。只给建议，不改数据 */
   /* 关联的负责范围（平台产品 id 列表）：平台只允许改范围内的记录。缓存 5 分钟；读不到返回 null（按不限处理，由平台把关） */
   let scopeCache = null;
@@ -455,5 +442,5 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     for (const e of Object.values(clean)) if (e.sid && !(it.sids ||= []).includes(e.sid)) it.sids.push(e.sid); // 用到的线索挂到这条上，证据链里能看到
     it.evidence = { at: new Date().toISOString(), fields: clean }; saveWork(w); return it.evidence;
   }
-  return { stageReady, scopeIds, newDraft, aiFill, setEvidence, saveMeeting, summarizeMeetings, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  return { stageReady, scopeIds, newDraft, aiFill, setEvidence, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }

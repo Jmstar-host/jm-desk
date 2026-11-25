@@ -1,4 +1,4 @@
-/* 好友分级、给好友开放的文件夹、第一层的「会议」气泡（1.4.2） */
+/* 好友分级、给好友开放的文件夹（1.4.2）；第一层直接动作的分组 */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { shareFor, tierOf, cleanCatalog } from '../app/main/peers.mjs';
 import { searchFolder, listFiles, folderEntry, badDir } from '../app/main/peerfiles.mjs';
-import { migrateLayout, validateLayout, DEFAULT_LAYOUT } from '../app/main/catalog.mjs';
+import { migrateLayout, validateLayout, DEFAULT_LAYOUT, MOVED } from '../app/main/catalog.mjs';
 
 test('好友分级：普通好友拿不到知识库；1.4.2 之前加的好友按知识好友算', () => {
   const share = { knowledge: true, requirements: true, todos: false };
@@ -34,13 +34,11 @@ test('开放的文件夹：只搜文本文件，回文件名和片段；跳过�
   assert.ok(badDir(os.homedir())); assert.ok(badDir('/')); assert.ok(badDir('/System/Library')); assert.ok(!badDir(dir));
 });
 
-test('第一层「会议」气泡：默认有；旧布局迁移时加一次，删掉后不再加回来', () => {
-  const v = validateLayout(DEFAULT_LAYOUT); assert.ok(v.ok, v.errors.join());
-  assert.equal(v.layout.groups.find(g => g.id === 'meet').action, 'app.meeting');
-  const old = { version: 1, groups: [{ id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], items: ['app.work', 'app.settings'] }] };
-  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['work', 'meet']);
-  assert.ok(validateLayout(m.layout).ok);
-  const removed = { ...validateLayout(m.layout).layout, groups: [m.layout.groups[0]] };
-  const again = migrateLayout(removed); assert.equal(again.changed, false); assert.deepEqual(again.layout.groups.map(g => g.id), ['work']);
-  assert.equal(validateLayout({ version: 1, groups: [{ id: 'x', label: '设置', icon: 'doc', items: ['app.settings'] }, { id: 'y', label: '坏', icon: 'doc', action: 'skill.burst', items: [] }] }).ok, false, '第一层直接动作只能是命令');
+test('1.5.2 去掉本机会议纪要：旧布局第一层的「会议」分组删掉；旧入口 app.meeting 转到线索；第一层直接动作只能是命令', () => {
+  const v = validateLayout(DEFAULT_LAYOUT); assert.ok(v.ok, v.errors.join()); assert.ok(!v.layout.groups.some(g => g.action === 'app.meeting'));
+  const old = { version: 1, seen: ['meet'], groups: [{ id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], items: ['app.work', 'app.settings'] }, { id: 'meet', label: '会议', icon: 'quill', color: ['#e11d48', '#ec4899'], action: 'app.meeting', items: [] }] };
+  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['work']); assert.ok(validateLayout(m.layout).ok);
+  assert.equal(migrateLayout(m.layout).changed, false);
+  assert.deepEqual(MOVED['app.meeting'], ['app.clues']);
+  assert.equal(validateLayout({ version: 1, groups: [{ id: 'x', label: '设置', icon: 'doc', items: ['app.settings'] }, { id: 'y', label: '坏', icon: 'doc', action: 'skill.burst', items: [] }] }).ok, false);
 });
