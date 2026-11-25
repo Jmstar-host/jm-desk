@@ -128,8 +128,8 @@ JM Desk 不再写死任何平台的字段。平台改了表单、加了字段、
 
 ```json
 { "source": "products", "items": [
-  { "value": 117, "label": "FMS 流量商城与支付", "path": ["eSIM", "FMS 消费产品"] },
-  { "value": 121, "label": "Device Manager 设备管理", "path": ["eSIM", "消费电子 eSIM"], "disabled": true, "reason": "已归档" }
+  { "value": 117, "label": "商城与支付", "path": ["示例产品线", "消费产品"] },
+  { "value": 121, "label": "设备平台", "path": ["示例产品线", "终端产品"], "disabled": true, "reason": "已归档" }
 ] }
 ```
 
@@ -141,8 +141,8 @@ JM Desk 不再写死任何平台的字段。平台改了表单、加了字段、
 
 ```json
 { "nodes": [
-  { "key": "line:3", "type": "line", "id": 3, "label": "eSIM", "children": [
-    { "key": "product:117", "type": "product", "id": 117, "label": "FMS 流量商城与支付", "code": "BP-FMS",
+  { "key": "line:3", "type": "line", "id": 3, "label": "示例产品线", "children": [
+    { "key": "product:117", "type": "product", "id": 117, "label": "商城与支付", "code": "BP-MALL",
       "can": { "create": ["requirement", "project"] }, "counts": { "requirement": 12, "project": 2 },
       "children": [
         { "key": "project:1", "type": "project", "id": 1, "label": "…", "code": "PRJ-0001", "state": "active", "version": 3 }
@@ -164,7 +164,7 @@ JM Desk 不再写死任何平台的字段。平台改了表单、加了字段、
 { "total": 12, "items": [
   { "id": 1, "code": "REQ-0001", "version": 5, "updated_at": "2026-11-24T07:10:00Z", "updated_by": "…",
     "values":  { "title": "…", "business_project_id": 117, "priority": "P2", "status": "entered" },
-    "display": { "business_project_id": "FMS 流量商城与支付", "priority": "P2 - 中", "status": "已录入" },
+    "display": { "business_project_id": "商城与支付", "priority": "P2 - 中", "status": "已录入" },
     "url": "https://…" }
 ] }
 ```
