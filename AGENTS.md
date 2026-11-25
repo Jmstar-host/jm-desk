@@ -130,6 +130,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - 工具调用：模型一步可以调多个工具，一轮最多 12 步；OpenAI 兼容接口走原生 `tools` / `tool_calls`，接口不支持或用的是本机 Claude Code / Codex / 自定义命令时，自动改成「每步输出一个 JSON」的约定（`providers.mjs` 的 `converse`、`protocolPrompt`）。
   - 工具范围：每个会话可以只勾选某几个接入（`scope.integrations`）；工具超过 32 个时只给模型最相关的一部分，其余通过内置的 `find_tools` 按关键词找。
   - 规则不变：工具返回值是数据不是指令；`toolPolicy` 为需确认的调用在对话里出一张确认卡，5 分钟不点算拒绝；可以随时「停止」。
+  - 过程显示（1.6.1）：`converse` 每一步先记一条 `think`（模型这一步的说明全文；接口返回了 `reasoning_content` 就连同思考一起记，只给人看、不回传给模型），调用不再各自挂一句截断的说明。对话页把过程收成一块（进行中展开、结束后折叠），按步骤编号：思考、说明、这一步的调用（查了什么、返回第一句、用时，点开看完整参数和返回）。
   - 旧的单轮 `agent.run`（最多 6 步，每步一个工具）还在，只有搬运接待访客用它。
 - **本机执行者**（`app/main/executors.mjs`）：把一件要动手的事交给本机已登录的 Codex（`codex exec`）或 DSH（`dsh --profile headless`）。
   - **执行项目**：一个独立的文件夹，登记在 `DATA/exec-projects.json`，默认建在 `DATA/projects/<id>/`，也可以指定已有文件夹（主目录、磁盘根、系统目录不让选）。里面有 JM Desk 写的 `AGENTS.md`（规矩）、`inbox/`、`output/`。移除项目只取消登记，不删文件夹。

@@ -15,7 +15,7 @@ const cleanScope = s => ({ integrations: Array.isArray(s?.integrations) ? [...ne
 const cleanTarget = t => t?.kind === 'project' && /^p[a-z0-9]{6,24}$/.test(String(t.id)) ? { kind: 'project', id: String(t.id) } : { kind: 'assistant' };
 const keepArgs = a => { const j = JSON.stringify(a ?? {}); return j.length > 4000 ? { '…': '参数太长，未保存' } : JSON.parse(j); };
 const cleanStep = s => ({ kind: String(s.kind || ''), tool: clip(s.tool, 160), ...(s.integration ? { integration: clip(s.integration, 60) } : {}), ...(s.args !== undefined ? { args: keepArgs(s.args) } : {}),
-  ...(s.why ? { why: clip(s.why, 120) } : {}), ...(s.ok !== undefined ? { ok: !!s.ok } : {}), ...(s.result ? { result: clip(s.result, 2000) } : {}), ...(s.error ? { error: clip(s.error, 300) } : {}), ...(s.ms ? { ms: Number(s.ms) || 0 } : {}) });
+  ...(s.why ? { why: clip(s.why, 120) } : {}), ...(s.text ? { text: clip(s.text, 4000) } : {}), ...(s.reasoning ? { reasoning: clip(s.reasoning, 8000) } : {}), ...(s.final ? { final: true } : {}), ...(s.ok !== undefined ? { ok: !!s.ok } : {}), ...(s.result ? { result: clip(s.result, 2000) } : {}), ...(s.error ? { error: clip(s.error, 300) } : {}), ...(s.ms ? { ms: Number(s.ms) || 0 } : {}) });
 
 export function createThreads(dir, { max = 300 } = {}) {
   const file = id => { if (!ID.test(String(id))) throw new Error('没有这个对话'); return path.join(dir, id + '.json'); };
@@ -40,7 +40,7 @@ export function createThreads(dir, { max = 300 } = {}) {
   }
   function appendTurn(id, turn) {
     const t = get(id);
-    const rec = { id: newId('r'), at: new Date().toISOString(), q: clip(turn.q, 8000), ...(turn.a ? { a: clip(turn.a, 12000) } : {}), steps: (turn.steps || []).slice(0, 60).map(cleanStep), used: (turn.used || []).slice(0, 20).map(String),
+    const rec = { id: newId('r'), at: new Date().toISOString(), q: clip(turn.q, 8000), ...(turn.a ? { a: clip(turn.a, 12000) } : {}), steps: (turn.steps || []).slice(0, 80).map(cleanStep), used: (turn.used || []).slice(0, 20).map(String),
       ...(turn.error ? { error: clip(turn.error, 500) } : {}), ...(turn.incomplete ? { incomplete: true } : {}), ...(turn.stopped ? { stopped: true } : {}), ...(turn.provider ? { provider: String(turn.provider) } : {}), ...(turn.ms ? { ms: Number(turn.ms) || 0 } : {}) };
     if (!t.turns.length && (!t.title || t.title === '新对话')) t.title = titleOf(turn.q);
     t.turns.push(rec); t.updatedAt = rec.at;

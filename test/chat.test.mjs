@@ -27,7 +27,7 @@ test('一轮里连续调用多个工具，工具结果按调用 id 回给模型�
   const r = await agent.converse({ question: 'A1 到哪了', tools, model, call: async (t, a) => { calls.push([t.id, a]); return { text: t.id === 'shop__get_order' ? '{"status":"shipped"}' : '[1,2]' }; }, confirm: async () => true, onStep: s => steps.push(s.kind) });
   assert.equal(r.answer, 'A1 已发货，一共 2 单。');
   assert.deepEqual(calls, [['shop__get_order', { id: 'A1' }], ['shop__list_orders', {}]]);
-  assert.deepEqual(r.used, ['shop__get_order', 'shop__list_orders']); assert.deepEqual(steps, ['call', 'call']);
+  assert.deepEqual(r.used, ['shop__get_order', 'shop__list_orders']); assert.deepEqual(steps, ['think', 'call', 'call'], '这一步的说明只记一次（think），不再挂在每个调用上');
   const second = seen[1].messages;
   assert.deepEqual(second.map(m => m.role), ['user', 'assistant', 'tool', 'tool']);
   assert.equal(second[2].id, 'c1'); assert.match(second[2].content, /shipped/); assert.equal(second[3].id, 'c2');
@@ -56,7 +56,7 @@ test('会改数据的工具先问人：拒绝后告诉模型不要再试，不�
   const { model, seen } = scripted([{ text: '取消它', toolCalls: [{ id: 'c1', name: 'shop__cancel_order', args: { id: 'A1' } }] }, { text: '没有取消。', toolCalls: [] }]);
   let called = 0; const asked = [];
   const r = await agent.converse({ question: '取消 A1', tools, model, call: async () => { called++; return { text: 'ok' }; }, confirm: async req => { asked.push(req.tool); return false; } });
-  assert.equal(called, 0); assert.deepEqual(asked, ['shop__cancel_order']); assert.equal(r.steps[0].kind, 'denied');
+  assert.equal(called, 0); assert.deepEqual(asked, ['shop__cancel_order']); assert.equal(r.steps.filter(s => s.kind !== 'think')[0].kind, 'denied');
   assert.match(seen[1].messages.at(-1).content, /用户拒绝/);
 });
 
@@ -158,4 +158,18 @@ test('会话：新建、追加轮次（首轮自动起标题）、改名、改�
 test('会话文件只有本人可读写（0600）', { skip: process.platform === 'win32' }, () => {
   const dir = path.join(tmp('jmdesk-threads-'), 'threads'), th = createThreads(dir), t = th.create();
   assert.equal(fs.statSync(path.join(dir, t.id + '.json')).mode & 0o777, 0o600);
+});
+
+test('模型给了思考过程（reasoning_content）时原样记下，只给人看，不回传给模型', async () => {
+  const sent = [];
+  const tools = [{ id: 'kb__knowledge_search', integ: { name: '知识库' }, tool: { name: 'knowledge_search', inputSchema: { type: 'object', properties: { query: { type: 'string' } } } }, needsConfirm: () => false }];
+  let n = 0;
+  const model = async ({ messages }) => { sent.push(JSON.stringify(messages)); n++;
+    return n === 1 ? { text: '我先查一下。', reasoning: '用户问 DP+ 的 Profile 名称，先搜知识库。', toolCalls: [{ id: 'c1', name: 'kb__knowledge_search', args: { query: 'DP+ profile name' } }] }
+      : { text: '支持。', reasoning: '资料里写了 profileName 必填。', toolCalls: [] }; };
+  const r = await agent.converse({ question: 'DP+ 支持定制 Profile Name 吗', tools, model, call: async () => ({ text: 'profileName 必填，1-64 字符' }), confirm: async () => true });
+  assert.deepEqual(r.steps.map(s => s.kind), ['think', 'call', 'think']);
+  assert.equal(r.steps[0].reasoning, '用户问 DP+ 的 Profile 名称，先搜知识库。'); assert.equal(r.steps[0].text, '我先查一下。');
+  assert.equal(r.steps[2].final, true); assert.equal(r.answer, '支持。');
+  assert.ok(!sent.some(m => m.includes('先搜知识库')), '思考内容不回传给模型');
 });

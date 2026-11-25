@@ -127,7 +127,8 @@ export const CONVERSERS = {
       try { const a = c.function.arguments; args = typeof a === 'string' ? (a.trim() ? JSON.parse(a) : {}) : a || {}; } catch { bad = true; }
       return { id: c.id || `call_${i}`, name: c.function.name, args: args && typeof args === 'object' ? args : {}, ...(bad ? { badArgs: true } : {}) };
     });
-    return { text: typeof m.content === 'string' ? m.content : '', toolCalls, in: j.usage?.prompt_tokens, out: j.usage?.completion_tokens };
+    // reasoning_content：DeepSeek 等思考模型的思考过程，只用来给人看（1.6.1），不回传给模型
+    return { text: typeof m.content === 'string' ? m.content : '', reasoning: typeof m.reasoning_content === 'string' ? m.reasoning_content : '', toolCalls, in: j.usage?.prompt_tokens, out: j.usage?.completion_tokens };
   },
 };
 
@@ -216,7 +217,7 @@ export function createRouter({ getSettings, getKey, usage, callers = CALLERS, co
         }
         const est = r.in == null; const rec = { provider: p.id, task, in: r.in ?? need, out: r.out ?? estTokens(r.text + JSON.stringify(r.toolCalls)), est };
         usage.add(rec);
-        return { text: r.text || '', toolCalls: r.toolCalls || [], provider: p.id, native, usage: rec };
+        return { text: r.text || '', reasoning: r.reasoning || '', toolCalls: r.toolCalls || [], provider: p.id, native, usage: rec };
       } catch (e) {
         if (signal?.aborted) throw Object.assign(new Error('已停止'), { aborted: true });
         errors.push(`${p.name || p.id}：${e.message}`);

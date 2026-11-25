@@ -45,19 +45,69 @@ function rich(text) {
 }
 
 /* ---------- 一轮 ---------- */
-const STEP = { call: '调用', denied: '已拒绝', error: '提示', find: '找工具', say: '说明' };
+/* 过程（1.6.1）：按模型的每一步分组。每一步先完整显示它的思考（模型给了才有）和说明，再列这一步做的调用：
+ * 查了什么（参数摘要）、拿回什么（返回的第一句）、用时；点一下看完整参数和返回。说明只出现一次，不再挂在每个调用后面。
+ * 进行中展开；结束后收成一行「过程」，点开就是全部。 */
 const integName = id => META.integrations.find(i => i.id === id)?.name || id;
-function stepRow(s) {
-  const [integ, ...rest] = String(s.tool || '').split('__'), name = rest.length ? rest.join('__') : integ;
-  const cls = s.kind === 'call' ? (s.ok ? ' ok' : ' warn') : s.kind === 'denied' || s.kind === 'error' ? ' warn' : '';
+const toolName = t => { const [integ, ...rest] = String(t || '').split('__'); return { name: rest.length ? rest.join('__') : integ, integ: rest.length ? integ : null }; };
+const oneLine = (v, n = 90) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
+function argSummary(args) {
+  const vals = Object.entries(args || {}).filter(([, v]) => v !== '' && v != null && typeof v !== 'object').map(([k, v]) => typeof v === 'string' ? (/^(query|question|q|keyword|keywords|ask)$/i.test(k) ? `“${v}”` : `${k}=${v}`) : `${k}=${v}`);
+  return oneLine(vals.join(' · '), 110);
+}
+function resultSummary(r) {
+  const t = String(r || ''); let j = null; try { j = JSON.parse(t); } catch {}
+  if (j && typeof j === 'object') {
+    const arr = Array.isArray(j) ? j : Object.values(j).find(Array.isArray);
+    if (arr) return `${arr.length} 条` + (arr[0] && typeof arr[0] === 'object' ? '：' + oneLine(arr.slice(0, 3).map(x => x.title || x.name || x.label || x.platform || x.text || '').filter(Boolean).join('、'), 70) : '');
+    const v = j.answer || j.summary || j.status || j.message || j.text; if (v) return oneLine(v, 100);
+  }
+  // 存下来的返回只留了前一段，JSON 不完整：按字段名摘出条数和前几个名字
+  if (/^\s*[{\[]/.test(t)) { const names = [...t.matchAll(/"(?:title|name|label|platform)"\s*:\s*"([^"]{1,40})"/g)].map(m => m[1]);
+    if (names.length) return `${names.length}${t.length >= 1990 ? '+' : ''} 条：` + oneLine(names.slice(0, 4).join('、'), 70); }
+  return oneLine(t.split('\n').find(l => l.trim() && !/^[{\[]$/.test(l.trim())) || t, 100);
+}
+function callRow(s) {
+  const { name, integ } = toolName(s.tool), bad = s.kind === 'denied' || s.kind === 'error' || (s.kind === 'call' && !s.ok);
   const detail = [s.args && Object.keys(s.args).length ? '参数\n' + JSON.stringify(s.args, null, 1) : '', s.result ? '返回\n' + s.result : ''].filter(Boolean).join('\n\n');
-  return h('div', { class: 'step' },
-    h('span', { class: 'tag' + cls }, s.kind === 'call' && !s.ok ? '调用失败' : STEP[s.kind] || s.kind),
-    name ? h('span', { class: 'nm', title: s.tool }, name) : null,
-    rest.length ? h('span', { class: 'tag' }, s.integration || integName(integ)) : null,
-    h('span', { class: 'why', title: s.error || s.why || '' }, ...(s.kind === 'say' ? inline(s.why || '') : [s.error || s.why || ''])),
-    s.ms ? h('span', { class: 'muted' }, secs(s.ms)) : null,
-    detail ? h('details', {}, h('summary', {}, '看参数和返回'), h('pre', { class: 'args' }, detail)) : null);
+  if (s.kind === 'error') return h('div', { class: 'call skip' }, h('i', { class: 'dot' }), h('span', { class: 'nm' }, name), h('span', { class: 'sum' }, '跳过：' + (s.error || '')));
+  const head = h('div', { class: 'ch' }, h('i', { class: 'dot' + (bad ? ' bad' : '') }), h('span', { class: 'nm', title: s.tool }, s.kind === 'find' ? '找工具' : name),
+    h('span', { class: 'sum', title: JSON.stringify(s.args || {}) }, s.kind === 'denied' ? '你拒绝了这个操作' : argSummary(s.args)),
+    integ && s.kind === 'call' ? h('span', { class: 'src' }, s.integration || integName(integ)) : null, s.ms ? h('span', { class: 'ms' }, secs(s.ms)) : null);
+  const res = s.result && s.kind !== 'denied' ? h('div', { class: 'res' + (bad ? ' bad' : '') }, '→ ' + resultSummary(s.result)) : null;
+  if (!detail) return h('div', { class: 'call' }, head, res);
+  return h('details', { class: 'call' }, h('summary', {}, head, res), h('pre', { class: 'args' }, detail));
+}
+/* 步骤分组：think（或执行者的 say）开一步；1.6.1 之前存的对话没有 think，就按相邻调用的说明是否相同来分，说明只显示一次 */
+function rounds(steps) {
+  const out = []; let r = null;
+  for (const s of steps || []) {
+    if (s.kind === 'think' || s.kind === 'say') { r = { text: s.kind === 'say' ? s.why : s.text, reasoning: s.reasoning, final: s.final, calls: [] }; out.push(r); continue; }
+    if (s.kind === 'confirm') continue;
+    if (!r || (r.legacy && s.why && s.why !== r.text)) { r = { text: s.why || '', legacy: true, calls: [] }; out.push(r); }
+    r.calls.push(s);
+  }
+  return out;
+}
+const openProc = new Map();   // 每一轮的过程块是否展开（用户点过的记住）
+function procBlock(t, { pending, key }) {
+  const rs = rounds(t.steps), calls = (t.steps || []).filter(s => s.kind === 'call');
+  if (!rs.length && !pending) return null;
+  const isOpen = openProc.has(key) ? openProc.get(key) : !!pending;
+  const thinking = rs.some(r => r.reasoning);
+  const title = pending ? '正在处理' : '过程';
+  const sum = [rs.length ? `${rs.length} 步` : '', calls.length ? `调用 ${calls.length} 次工具` : '', !pending && t.ms ? '用时 ' + secs(t.ms) : ''].filter(Boolean).join(' · ');
+  const list = h('ol', { class: 'rounds' }, rs.map((r, i) => h('li', { class: 'round' },
+    h('div', { class: 'rn' }, String(i + 1)),
+    h('div', { class: 'rb' },
+      r.reasoning ? h('div', { class: 'think' }, h('div', { class: 'tl' }, r.final ? '整理回答前的思考' : '思考'), h('div', { class: 'tx' }, r.reasoning)) : null,
+      r.text ? h('div', { class: 'say' }, rich(r.text)) : (!r.reasoning && r.calls.length ? h('div', { class: 'say muted' }, '（这一步模型没有写说明）') : null),
+      r.calls.length ? h('div', { class: 'calls' }, r.calls.map(callRow)) : null))),
+    pending && !t.confirm ? h('li', { class: 'round now' }, h('div', { class: 'rn' }, h('span', { class: 'spin' })), h('div', { class: 'rb muted' }, '想下一步…')) : null);
+  const box = h('details', { class: 'proc' + (pending ? ' live' : ''), ...(isOpen ? { open: true } : {}) },
+    h('summary', {}, h('span', { class: 'pt' }, title), h('span', { class: 'ps' }, sum + (thinking ? ' · 含模型思考' : '')), h('span', { class: 'chev' })), list);
+  box.addEventListener('toggle', () => openProc.set(key, box.open));
+  return box;
 }
 function confirmCard(threadId, c) {
   const reply = ok => { ipcRenderer.invoke('agent:confirm-reply', c.id, ok); const l = live.get(threadId); if (l) l.confirm = null; draw(); };
@@ -68,13 +118,13 @@ function confirmCard(threadId, c) {
     h('div', { class: 'row' }, h('button', { onclick: () => reply(false) }, '拒绝'), h('button', { class: 'pri', onclick: () => reply(true) }, '允许')));
 }
 function turnNode(t, { pending = false, threadId } = {}) {
-  const body = h('div', { class: 'body' });
-  if (t.steps?.length) body.append(h('div', { class: 'steps' }, t.steps.map(stepRow)));
-  if (pending) { if (t.confirm) body.append(confirmCard(threadId, t.confirm)); else body.append(h('div', { class: 'loading' }, h('i'), h('i'), h('i'))); }
+  const body = h('div', { class: 'body' }), proc = procBlock(t, { pending, key: pending ? 'live:' + threadId : t.id || t.at });
+  if (proc) body.append(proc);
+  if (pending) { if (t.confirm) body.append(confirmCard(threadId, t.confirm)); else if (!t.steps?.length) body.append(h('div', { class: 'loading' }, h('i'), h('i'), h('i'))); }
   else {
     body.append(t.a ? h('div', { class: 'ans' + (t.incomplete ? ' bad' : '') }, rich(t.a)) : h('div', { class: 'ans bad' }, '这一轮没有完成：' + (t.error || '未知原因')));
-    const n = (t.steps || []).filter(s => s.kind === 'call').length;
-    body.append(h('div', { class: 'meta' }, h('span', {}, when(t.at)), t.provider ? h('span', {}, String(t.provider).startsWith('exec:') ? '执行者 ' + execLabel(t.provider.slice(5)) : '模型 ' + (META.models.find(m => m.id === t.provider)?.name || t.provider)) : null, n ? h('span', {}, `调用了 ${n} 次工具`) : null, t.ms ? h('span', {}, '用时 ' + secs(t.ms)) : null));
+    body.append(h('div', { class: 'meta' }, h('span', {}, when(t.at)), t.provider ? h('span', {}, String(t.provider).startsWith('exec:') ? '执行者 ' + execLabel(t.provider.slice(5)) : '模型 ' + (META.models.find(m => m.id === t.provider)?.name || t.provider)) : null,
+      t.a ? h('button', { class: 'cp', onclick: e => { navigator.clipboard.writeText(t.a); e.target.textContent = '已复制'; setTimeout(() => { e.target.textContent = '复制'; }, 1200); } }, '复制') : null));
   }
   return h('div', { class: 'turn' }, h('div', { class: 'u' }, h('div', { class: 'bb' }, t.q)), h('div', { class: 'a' }, h('div', { class: 'orb' }), body));
 }

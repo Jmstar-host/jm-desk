@@ -154,9 +154,11 @@ export async function converse({ turns = [], question, tools, model, call, confi
     try { r = await model({ system, messages: msgs, tools: specs }); }
     catch (e) { if (e.aborted || signal?.aborted) return stopped(); throw e; }
     provider = r.provider || provider;
-    if (!r.toolCalls?.length || last) return { answer: clip(r.text || '（模型没有给出回答）', 12000), steps, used: [...usedIds], provider };
+    if (!r.toolCalls?.length || last) { if (String(r.reasoning || '').trim()) push({ kind: 'think', text: '', reasoning: clip(String(r.reasoning).trim(), 8000), final: true }); return { answer: clip(r.text || '（模型没有给出回答）', 12000), steps, used: [...usedIds], provider }; }
     msgs.push({ role: 'assistant', content: r.text || '', toolCalls: r.toolCalls });
     const why = clip(String(r.text || '').replace(/\s+/g, ' '), 80);
+    // 这一步模型的思考和说明原样记一次（1.6.1）：界面按步骤完整显示，不再在每个调用上重复一句截断的说明
+    if (String(r.text || '').trim() || String(r.reasoning || '').trim()) push({ kind: 'think', text: clip(String(r.text || '').trim(), 4000), reasoning: clip(String(r.reasoning || '').trim(), 8000) });
     for (const c of r.toolCalls) {
       const reply = content => msgs.push({ role: 'tool', id: c.id, name: c.name, content });
       if (signal?.aborted) { reply('用户停止了这一轮。'); continue; }
