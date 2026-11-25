@@ -32,3 +32,39 @@
   addEventListener('blur', close); addEventListener('resize', close);
   document.addEventListener('scroll', e => { if (pop && !pop.contains(e.target)) close(); }, true);
 })();
+
+/* 日期：用场景样式的小日历代替系统的日期选择器。<input type="date"> 本身保留（值是 YYYY-MM-DD，键盘照常可以直接输入），点一下弹出日历。 */
+(() => {
+  let pop = null, owner = null, view = null;
+  const pad = n => String(n).padStart(2, '0'), fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const parse = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? new Date(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) : null;
+  const close = () => { if (pop) { pop.remove(); pop = null; owner = null; } };
+  const set = v => { const inp = owner; if (!inp) return; if (inp.value !== v) { inp.value = v; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); } close(); inp.focus(); };
+  const el = (tag, cls, text, on) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; if (on) e.addEventListener('mousedown', ev => { ev.preventDefault(); ev.stopPropagation(); on(); }); return e; };
+  function draw() {
+    const cur = owner.value, today = fmt(new Date()), y = view.getFullYear(), m = view.getMonth();
+    const hd = el('div', 'dh'); hd.append(el('b', 'nav', '‹', () => { view = new Date(y, m - 1, 1); draw(); }), el('span', '', `${y} 年 ${m + 1} 月`), el('b', 'nav', '›', () => { view = new Date(y, m + 1, 1); draw(); }));
+    const grid = el('div', 'dg'); for (const w of '一二三四五六日') grid.append(el('i', '', w));
+    const first = (new Date(y, m, 1).getDay() + 6) % 7, days = new Date(y, m + 1, 0).getDate();
+    for (let k = 0; k < first; k++) grid.append(el('span'));
+    for (let d = 1; d <= days; d++) { const v = `${y}-${pad(m + 1)}-${pad(d)}`; grid.append(el('em', (v === cur ? 'on' : '') + (v === today ? ' td' : ''), String(d), () => set(v))); }
+    const ft = el('div', 'df'); ft.append(el('b', '', '今天', () => set(today)), el('b', '', '清空', () => set('')));
+    pop.replaceChildren(hd, grid, ft);
+  }
+  function open(inp) {
+    close(); if (inp.disabled || inp.readOnly) return;
+    owner = inp; view = parse(inp.value) || new Date(); view = new Date(view.getFullYear(), view.getMonth(), 1);
+    pop = el('div', 'selpop datepop'); document.body.append(pop); draw();
+    const r = inp.getBoundingClientRect(), W = 252, H = pop.offsetHeight, up = innerHeight - r.bottom < H + 12 && r.top > H + 12;
+    pop.style.width = W + 'px'; pop.style.left = Math.max(8, Math.min(r.left, innerWidth - W - 8)) + 'px';
+    if (up) pop.style.bottom = (innerHeight - r.top + 4) + 'px'; else pop.style.top = (r.bottom + 4) + 'px';
+  }
+  document.addEventListener('mousedown', e => {
+    const inp = e.target.closest && e.target.closest('input[type=date]');
+    if (inp) { e.preventDefault(); inp.focus(); owner === inp ? close() : open(inp); return; }
+    if (pop && !pop.contains(e.target)) close();
+  }, true);
+  document.addEventListener('keydown', e => { if (pop && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); const i = owner; close(); i.focus(); } else if (pop && e.key === 'Tab') close(); }, true);
+  addEventListener('blur', close); addEventListener('resize', close);
+  document.addEventListener('scroll', e => { if (pop && !pop.contains(e.target)) close(); }, true);
+})();

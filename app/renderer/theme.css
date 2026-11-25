@@ -94,6 +94,22 @@ pre.args{white-space:pre-wrap;word-break:break-all;font:var(--mono);line-height:
 .selpop .so.hl{background:var(--blue-ll)}
 .selpop .so.on{font-weight:650;color:var(--pink-d)}
 .selpop .so.dis{opacity:.45;cursor:default}
+/* 日期（ui.js）：不用系统的日期选择器，换成小日历；时间输入框也去掉系统的弹出按钮，直接输入 */
+input[type=date],input[type=time]{cursor:pointer;font-variant-numeric:tabular-nums}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=time]::-webkit-calendar-picker-indicator{display:none}
+input[type=date]{padding-right:28px;background:rgba(255,255,255,.92) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2.5' y='3.5' width='11' height='10' rx='2' fill='none' stroke='%235f5a6b' stroke-width='1.3'/%3E%3Cpath d='M2.5 6.5h11M5.5 2v3M10.5 2v3' stroke='%235f5a6b' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 9px center/14px}
+input[type=date]::-webkit-datetime-edit-fields-wrapper{color:var(--ink)}
+.datepop{padding:9px 10px 8px}
+.datepop .dh{display:flex;align-items:center;justify-content:space-between;font-weight:650;font-size:12.5px;margin-bottom:6px}
+.datepop .nav{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;cursor:pointer;color:var(--sub);font-size:15px}.datepop .nav:hover{background:var(--blue-ll);color:var(--ink)}
+.datepop .dg{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.datepop .dg i{font-style:normal;font-size:11px;color:var(--faint);padding:2px 0}
+.datepop .dg em{font-style:normal;font-size:12px;line-height:28px;border-radius:8px;cursor:pointer}
+.datepop .dg em:hover{background:var(--blue-ll)}
+.datepop .dg em.td{box-shadow:inset 0 0 0 1px var(--blue)}
+.datepop .dg em.on{background:var(--pink);color:var(--white);font-weight:650}
+.datepop .df{display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+.datepop .df b{font-weight:500;font-size:12px;color:var(--blue-d);cursor:pointer;padding:2px 6px;border-radius:6px}.datepop .df b:hover{background:var(--blue-ll)}
 
 /* 大窗口页面的共用外壳（助手 / 工作台 / 线索）：底色、顶栏、选中行 */
 body.page{margin:0;height:100%;font:var(--font);color:var(--ink);overflow:hidden;background:var(--page)}

@@ -19,12 +19,12 @@
 
 ```json
 { "version": 1, "groups": [
-  { "id": "work", "label": "工作", "icon": "doc", "color": ["#8b7cf6", "#60a5fa"], "tip": "助手、工作台", "items": ["app.agent", "app.work"] }
+  { "id": "work", "label": "工作", "icon": "doc", "color": ["#ec4899", "#3b82f6"], "tip": "助手、工作台", "items": ["app.agent", "app.work"] }
 ] }
 ```
 
 - `groups` 是内圈分组，1–6 个；`items` 是点开分组后外圈的气泡，每组最多 8 个，每个动作最多出现一次。**必须保留 `app.settings`**，否则用户改不回来。
-- `label` 1–5 个字；`id` 用小写英文；`color` 是两个 `#rrggbb`。
+- `label` 1–5 个字；`id` 用小写英文；`color` 是两个 `#rrggbb`，只能用色板里的颜色（其他颜色会被对齐到最近的一种，见界面约定）。
 - `icon` 只能从这些里选：`magic mail sliders portal burst orbit dash heart loop smile doc check chart inbox quill box wing moon pin corner bell`
 - 权威定义在 `app/main/catalog.mjs`（`CATALOG`、`DEFAULT_LAYOUT`、`validateLayout`、`ICONS`）。
 
@@ -208,7 +208,7 @@ test/                      node --test，全部用假服务和虚构样例
 - 右键菜单不用系统原生菜单。
 - 面板钉住的状态以主进程为准（`panel:pin` / `panel:pin-state`）。
 - 说明文字最多两行；长路径只显示文件名，完整内容放在悬停提示里。
-- 不用系统原生的弹出控件：下拉框由 `renderer/ui.js` 换成场景样式的浮层（页面里照常写 `<select>`，引入 `ui.js` 即可）；需要人确认时用 `main.mjs` 的 `askConfirm`（`confirm.html`），不用 `dialog.showMessageBox`。选文件的系统对话框除外。
+- 不用系统原生的弹出控件：下拉框和日期由 `renderer/ui.js` 换成场景样式的浮层（页面里照常写 `<select>`、`<input type="date">`，引入 `ui.js` 即可；时间输入框只保留直接输入）；需要人确认时用 `main.mjs` 的 `askConfirm`（`confirm.html`），不用 `dialog.showMessageBox`。选文件的系统对话框除外。
 - 精灵窗口的位置：显示器信息由主进程推给精灵（`jm:displays`），挪窗口用单向消息 `jm:move`。**不要在每帧里用 `@electron/remote` 同步问主进程**，主进程一忙精灵就会卡住再跳。
 
 ## 10. 当前状态
