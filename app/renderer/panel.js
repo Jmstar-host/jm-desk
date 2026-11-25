@@ -125,6 +125,7 @@ function tabLayout(body) {
     const set = p => ipcRenderer.invoke('sprite:cfg-set', p);
     act.replaceChildren(h('h3', {}, '精灵怎么动'),
       h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: c.hoverMenu, onchange: e => set({ hoverMenu: e.target.checked }) }), '鼠标放在精灵上就打开气泡（不用点）'),
+      h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: c.flyCast, onchange: e => set({ flyCast: e.target.checked }) }), '飞的时候顺手放技能（电脑越忙放得越勤）'),
       h('div', { class: 'row' }, h('span', { class: 'muted' }, '动作快慢跟着'), h('select', { onchange: e => set({ motion: e.target.value }) },
         ...[['cpu', 'CPU 占用'], ['cpu+mem', 'CPU + 内存占用'], ['off', '不跟（一直正常速度）']].map(([v, n]) => h('option', { value: v, selected: c.motion === v }, n)))),
       h('div', { class: 'muted' }, '电脑越忙，精灵扇翅膀、甩尾巴越快，自由飞时满屏快飞；三成以下是正常速度。第一层的「占用」气泡显示 CPU 和内存。'));

@@ -14,7 +14,8 @@ const MEW = 220; // 精灵窗口 = 舞台本身，只移动不改大小
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const character = ipcRenderer.sendSync('jm:character'); // { id, params }
-const mew = createSprite($('stage'), { camZ: 4.7 * MEW / 170, roam: 0.22, followPointer: false, palette: character && character.params, pack: character && character.pack });
+let FXURL = {}; try { FXURL = ipcRenderer.sendSync('jm:fx') || {}; } catch (e) {} // 技能特效素材包（DATA/extensions/fx/）
+const mew = createSprite($('stage'), { camZ: 4.7 * MEW / 170, roam: 0.22, followPointer: false, palette: character && character.params, pack: character && character.pack, fx: FXURL });
 window.__mew = mew;
 mew.fps(60);
 
@@ -23,7 +24,7 @@ let bubbleOn = false, bubbleTimer = null, bubbleAction = null, drag = null, raf 
 let menuOn = false, menuLevel = 'root', clickTimer = null, lastClickAt = 0; // 点击精灵弹出的气泡菜单
 const counts = { unread: 0, tasks: 0 };
 /* 1.7.0：电脑忙闲（主进程每 2 秒推一次）和精灵的动作设置 */
-let LOAD = { cpu: null, mem: null, tempo: 1 }, BOOST = 1, CFG = { hoverMenu: true, motion: 'cpu' };
+let LOAD = { cpu: null, mem: null, tempo: 1 }, BOOST = 1, CFG = { hoverMenu: true, flyCast: true, motion: 'cpu' };
 ipcRenderer.invoke('sprite:cfg').then(c => { if (c) CFG = c; }).catch(() => {});
 let hoverT = null, menuByHover = false, menuOpenedAt = 0;
 
@@ -176,7 +177,7 @@ ipcRenderer.on('jm', (_e, json) => {
   else if (m.type === 'shown') { anchor = clampAnchor({ x: window.screenX, y: window.screenY }); layout(); brainReset(); }
   else if (m.type === 'cfg') { cfgMode = m.mode || cfgMode; }
   else if (m.type === 'counts') { counts.unread = m.unread || 0; counts.tasks = m.tasks || 0; }
-  else if (m.type === 'spriteCfg') { CFG = { hoverMenu: m.hoverMenu, motion: m.motion }; }
+  else if (m.type === 'spriteCfg') { CFG = { hoverMenu: m.hoverMenu, flyCast: m.flyCast, motion: m.motion }; }
   else if (m.type === 'load') {
     LOAD = { cpu: m.cpu, mem: m.mem, tempo: m.tempo }; BOOST = REDUCED ? 1 : Math.max(1, m.tempo || 1); mew.tempo && mew.tempo(BOOST);
     if (menuOn) { const it = curItems.find(x => x.id === 'sys.load'); if (it) { curItems = menuItems(menuLevel); sendOv({ type: 'update', items: curItems.filter(x => x.id === 'sys.load').map(wire) }); } }
@@ -219,8 +220,23 @@ function peekEdge() {
   const a = clampAnchor({ x: left ? -1e7 : 1e7, y: B.pos.y + rand(-200, 200) }, wa.x + wa.width / 2, wa.y + wa.height / 2);
   flyTo(a, 'peek', 320, 15, () => { mew.trick('peek'); idle(rand(3500, 6000)); });
 }
+/* 1.8.0：边飞边放。这些技能只放特效，不打断飞行；飞着的时候 burst / sparkle 也不停下来 */
+const AIR = ['psywave', 'orb', 'meteor', 'spark', 'swirl'];
+const flying = () => !!B.target && Math.hypot(B.vel.x, B.vel.y) > 60;
+function airCast(name) { mew.skill(name); }
+/* 连招：满屏快飞，路上隔一会放一个技能，最后翻个跟头 */
+function combo() {
+  const d = curDisplay(); if (!d || REDUCED) return airCast('psywave');
+  const seq = [...AIR].sort(() => Math.random() - 0.5); let i = 0;
+  const hop = () => { if (i >= seq.length) { mew.trick('loop'); return idle(rand(1500, 3000)); } const n = seq[i++]; mew.trick('dash'); flyTo(randomAnchor(d), 'zoom', rand(900, 1300), rand(30, 70), hop); setTimeout(() => airCast(n), 180); };
+  B.lastUser = performance.now(); hop();
+}
+let nextAir = 0;
 function castSkill(name) {
   B.lastUser = performance.now();
+  if (AIR.includes(name)) return airCast(name);
+  if (name === 'combo') return combo();
+  if ((name === 'burst' || name === 'sparkle') && flying()) { mew.skill(name); return; } // 飞着就边飞边放
   if (REDUCED) { mew.skill('sparkle'); return idle(3000); }
   if (name === 'teleport') {
     B.mode = 'skill'; B.target = null; B.vel = { x: 0, y: 0 }; B.until = performance.now() + 2000;
@@ -318,6 +334,8 @@ function brainTick() {
   B.pos.x += B.vel.x * dt; B.pos.y += B.vel.y * dt;
   const speed = Math.hypot(B.vel.x, B.vel.y);
   mew.travel(B.vel.x, B.vel.y);
+  // 飞得快的时候顺手放技能：电脑越忙放得越勤（设置里可以关）
+  if (CFG.flyCast && speed > 250 && now > nextAir && !REDUCED) { nextAir = now + rand(2500, 6000) / BOOST; if (Math.random() < 0.35 + 0.15 * BOOST) airCast(pick(AIR)); }
   if (speed > 0.5) moveWin(false);
   setFps(speed > 1 || B.mode === 'skill' || B.mode === 'orbit' ? 60 : 30);
   if (speed < 0.5 && now - saveT > 20000 && B.lastSet) { saveT = now; send('savePos', B.lastSet); }
@@ -398,7 +416,8 @@ requestAnimationFrame(brainTick);
 const SKILLS = {
   'skill.teleport': () => castSkill('teleport'), 'skill.burst': () => castSkill('burst'), 'skill.orbit': () => castSkill('orbit'),
   'skill.zoom': () => castSkill('zoom'), 'skill.sparkle': () => castSkill('sparkle'),
-  'skill.loop': () => { mew.trick('loop'); brainStay(4000); }, 'skill.wave': () => { mew.trick('wave'); brainStay(4000); },
+  'skill.loop': () => { mew.trick('loop'); brainStay(4000); },
+  'skill.combo': () => closeMenu(() => castSkill('combo'), true), // 气泡开着时精灵不飞，先收起 'skill.psywave': () => castSkill('psywave'), 'skill.orb': () => castSkill('orb'), 'skill.meteor': () => castSkill('meteor'), 'skill.spark': () => castSkill('spark'), 'skill.swirl': () => castSkill('swirl'), 'skill.wave': () => { mew.trick('wave'); brainStay(4000); },
   'toggle.roam': () => setRoam(!roamOn), 'place.corner': () => resetCorner(),
 };
 let menuLayout = ipcRenderer.sendSync('jm:layout');
@@ -509,7 +528,7 @@ function onMenuClick(id) {
 }
 setTimeout(overlayWin, 1500); // 提前建好，第一次点开也不卡
 
-window.__float = { get load() { return { ...LOAD, boost: BOOST }; }, get cfg() { return CFG; }, openMenu, closeMenu, get menuOn() { return menuOn; }, get menuLevel() { return menuLevel; }, brain: B, castSkill, setRoam, get roamOn() { return roamOn; }, remote: !!remote, win: !!win, layout, say, get anchor() { return anchor; }, get bubbleOn() { return bubbleOn; } };
+window.__float = { combo, airCast, get load() { return { ...LOAD, boost: BOOST }; }, get cfg() { return CFG; }, openMenu, closeMenu, get menuOn() { return menuOn; }, get menuLevel() { return menuLevel; }, brain: B, castSkill, setRoam, get roamOn() { return roamOn; }, remote: !!remote, win: !!win, layout, say, get anchor() { return anchor; }, get bubbleOn() { return bubbleOn; } };
 setIgnore(true);
 setTimeout(layout, 300);
 send('ready');

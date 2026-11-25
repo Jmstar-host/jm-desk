@@ -647,6 +647,14 @@ ipcMain.on('jm:move', (e, x, y) => { const w = BrowserWindow.fromWebContents(e.s
 app.whenReady().then(() => { const push = () => { if (sprite && !sprite.isDestroyed()) sprite.webContents.send('jm:displays', displaysView()); }; for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, push); });
 ipcMain.on('jm:layout', e => { e.returnValue = resolveLayout(loadLayout()); });
 ipcMain.on('jm:character', e => { e.returnValue = loadCharacter(); });
+/* 技能特效素材包（1.8.0）：DATA/extensions/fx/ 里的 PNG 按文件名对到特效（Kenney Particle Pack 等 CC0 素材的命名），没有就用代码画的 */
+const FX_NAMES = { glow: ['flare_', 'light_', 'glow'], ring: ['circle_0', 'ring'], spark: ['spark_', 'lightning'], star: ['star_'], swirl: ['twirl_', 'swirl'], streak: ['trace_', 'streak'] };
+function fxFiles() {
+  const dir = store.file(path.join('extensions', 'fx')); let files = [];
+  try { files = fs.readdirSync(dir).filter(f => /\.png$/i.test(f)).sort(); } catch { return {}; }
+  return Object.fromEntries(Object.entries(FX_NAMES).map(([k, pre]) => [k, files.find(f => pre.some(p => f.toLowerCase().startsWith(p)))]).filter(([, f]) => f).map(([k, f]) => [k, pathToFileURL(path.join(dir, f)).href]));
+}
+ipcMain.on('jm:fx', e => { e.returnValue = fxFiles(); });
 ipcMain.on('jm:theme', e => { const ch = loadCharacter(); e.returnValue = { theme: themeFor(ch), name: (CHARACTERS[ch.id] || {}).name || 'JM Desk', version: app.getVersion() }; });
 ipcMain.on('jm-buddy-float', (e, json) => {
   let m; try { m = JSON.parse(json); } catch { return; }
@@ -1025,9 +1033,9 @@ ipcMain.handle('mp2:open-revoke', () => { const b = mp2link.linkStatus().baseUrl
 
 function toSprite(m) { if (sprite && !sprite.isDestroyed()) sprite.webContents.send('jm', JSON.stringify(m)); }
 /* 精灵的动作设置（1.7.0，settings.sprite）：hoverMenu 鼠标放上去就打开气泡；motion 动作跟随电脑忙闲 off | cpu | cpu+mem */
-const spriteCfg = () => ({ hoverMenu: settings().sprite?.hoverMenu !== false, motion: ['off', 'cpu', 'cpu+mem'].includes(settings().sprite?.motion) ? settings().sprite.motion : 'cpu' });
+const spriteCfg = () => ({ hoverMenu: settings().sprite?.hoverMenu !== false, flyCast: settings().sprite?.flyCast !== false, motion: ['off', 'cpu', 'cpu+mem'].includes(settings().sprite?.motion) ? settings().sprite.motion : 'cpu' });
 ipcMain.handle('sprite:cfg', () => spriteCfg());
-ipcMain.handle('sprite:cfg-set', (_e, p) => { const s = settings(); s.sprite = { ...spriteCfg(), ...(p && typeof p === 'object' ? { ...('hoverMenu' in p ? { hoverMenu: !!p.hoverMenu } : {}), ...(['off', 'cpu', 'cpu+mem'].includes(p.motion) ? { motion: p.motion } : {}) } : {}) }; store.write('settings.json', s); toSprite({ type: 'spriteCfg', ...spriteCfg() }); return spriteCfg(); });
+ipcMain.handle('sprite:cfg-set', (_e, p) => { const s = settings(); s.sprite = { ...spriteCfg(), ...(p && typeof p === 'object' ? { ...('hoverMenu' in p ? { hoverMenu: !!p.hoverMenu } : {}), ...('flyCast' in p ? { flyCast: !!p.flyCast } : {}), ...(['off', 'cpu', 'cpu+mem'].includes(p.motion) ? { motion: p.motion } : {}) } : {}) }; store.write('settings.json', s); toSprite({ type: 'spriteCfg', ...spriteCfg() }); return spriteCfg(); });
 /* 系统占用：每 2 秒采一次推给精灵（动作快慢、「占用」气泡） */
 let lastLoad = null;
 sysload.startSampler(l => { lastLoad = l; const c = spriteCfg(); toSprite({ type: 'load', cpu: l.cpu, mem: l.mem, tempo: sysload.tempoFor(sysload.loadFor(c.motion, l.cpu, l.mem)) }); }, 2000,

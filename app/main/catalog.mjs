@@ -8,6 +8,13 @@ export const CATALOG = {
   'skill.sparkle':  { kind: 'skill', icon: 'heart', label: '爱心', tip: '撒一把爱心' },
   'skill.loop':     { kind: 'skill', icon: 'loop', label: '跟头', tip: '翻个跟头' },
   'skill.wave':     { kind: 'skill', icon: 'smile', label: '挥手', tip: '打个招呼' },
+  // 1.8.0 能边飞边放的技能：放的时候不停下来
+  'skill.combo':    { kind: 'skill', icon: 'dash', label: '连招', tip: '满屏快飞，一路放念力波、能量球、流星、电光、旋风' },
+  'skill.psywave':  { kind: 'skill', icon: 'portal', label: '念力波', tip: '三圈光环向外扩散，飞着也能放' },
+  'skill.orb':      { kind: 'skill', icon: 'orbit', label: '能量球', tip: '在身前聚光，往飞行方向打出去' },
+  'skill.meteor':   { kind: 'skill', icon: 'magic', label: '流星', tip: '一串星星从上方斜着落下' },
+  'skill.spark':    { kind: 'skill', icon: 'bell', label: '电光', tip: '身体周围噼里啪啦的闪电' },
+  'skill.swirl':    { kind: 'skill', icon: 'loop', label: '旋风', tip: '转一圈，甩出一圈星光' },
   /* 主窗口（1.3.0 起对话、工作台、线索合进一个窗口，左边切换） */
   'app.desk':       { kind: 'cmd', icon: 'chart', label: '主窗口', tip: '助手、工作台、线索都在这个窗口里' },
   'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '和 AI 多轮对话：查资料、问知识库、调用平台办事、交给本机执行者' },
@@ -29,7 +36,7 @@ export const ICONS = ['magic', 'mail', 'sliders', 'portal', 'burst', 'orbit', 'd
 export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
-    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave'] },
+    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave', 'skill.combo'] },
     { id: 'load', label: '占用', icon: 'dash', color: ['#16a34a', '#3b82f6'], tip: 'CPU 和内存占用', action: 'sys.load', items: [] },
     { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、串门', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
     { id: 'mail', label: '邮箱', icon: 'mail', color: ['#3b82f6', '#8b5cf6'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
@@ -68,6 +75,8 @@ export function migrateLayout(l) {
   const kept = groups.filter(g => g.action !== 'app.meeting'); if (kept.length !== groups.length) changed = true;
   // 1.7.0：第一层加「占用」（CPU / 内存，点开活动监视器）。只加一次，用户删掉后不再加回来（seen 记着）
   const seen = new Set(Array.isArray(l.seen) ? l.seen : []);
+  // 1.8.0：「互动」里加「连招」（边飞边放技能）。只加一次，放得下才加
+  if (!seen.has('combo')) { seen.add('combo'); changed = true; const play = kept.find(g => g.id === 'play' && !g.action); if (play && play.items.length < 8 && !kept.some(g => g.items.includes('skill.combo'))) play.items = [...play.items, 'skill.combo']; }
   if (!seen.has('load')) { seen.add('load'); changed = true; if (kept.length < 6 && !kept.some(g => g.action === 'sys.load' || g.items.includes('sys.load'))) kept.splice(Math.min(1, kept.length), 0, { ...DEFAULT_LAYOUT.groups.find(g => g.id === 'load'), items: [] }); }
   return { layout: { ...l, groups: kept, seen: [...seen] }, changed };
 }

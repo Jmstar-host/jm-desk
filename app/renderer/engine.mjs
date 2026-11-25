@@ -28,6 +28,23 @@ function spriteTexture(kind) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+/* 技能特效贴图（1.8.0）：默认用代码画（白色、带透明度，颜色在发射时上色）；数据目录 extensions/fx/ 里放了素材包的 PNG 时用素材包的
+ * （Kenney Particle Pack 这类 CC0 素材：spark_01.png、twirl_01.png、trace_01.png、star_01.png、flare_01.png、circle_05.png…，见 main.mjs 的 fxFiles） */
+function fxTexture(kind, url) {
+  if (url) { const t = new THREE.TextureLoader().load(url); t.colorSpace = THREE.SRGBColorSpace; return t; }
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.translate(64, 64);
+  const glowAt = (r, a = 1) => { const gr = g.createRadialGradient(0, 0, 0, 0, 0, r); gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(0.25, `rgba(255,255,255,${a * 0.6})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill(); };
+  if (kind === 'glow') glowAt(64);
+  else if (kind === 'ring') { for (const [w, a] of [[10, 0.25], [5, 0.6], [2.2, 1]]) { g.strokeStyle = `rgba(255,255,255,${a})`; g.lineWidth = w; g.beginPath(); g.arc(0, 0, 54, 0, Math.PI * 2); g.stroke(); } }
+  else if (kind === 'spark') { // 闪电：折线，外面一层光晕
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const [w, a] of [[9, 0.25], [3.5, 0.9], [1.4, 1]]) { g.strokeStyle = `rgba(255,255,255,${a})`; g.lineWidth = w; g.beginPath(); g.moveTo(-50, -18); g.lineTo(-18, 4); g.lineTo(-8, -10); g.lineTo(22, 12); g.lineTo(30, 2); g.lineTo(54, 20); g.stroke(); }
+  } else if (kind === 'star') { glowAt(40, 0.7); g.fillStyle = '#fff'; g.beginPath(); for (let i = 0; i < 10; i++) { const r = i % 2 ? 14 : 52, a = i * Math.PI / 5 - Math.PI / 2; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.fill(); }
+  else if (kind === 'swirl') { g.lineCap = 'round'; for (let arm = 0; arm < 3; arm++) { g.save(); g.rotate(arm * Math.PI * 2 / 3); for (const [w, a] of [[8, 0.25], [3, 0.9]]) { g.strokeStyle = `rgba(255,255,255,${a})`; g.lineWidth = w; g.beginPath(); for (let k = 0; k <= 40; k++) { const t = k / 40, r = 6 + t * 52, ang = t * Math.PI * 1.4; g.lineTo(Math.cos(ang) * r, Math.sin(ang) * r); } g.stroke(); } g.restore(); } }
+  else if (kind === 'streak') { const gr = g.createLinearGradient(-60, 0, 60, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.8, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,1)'); g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, 60, 7, 0, 0, Math.PI * 2); g.fill(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
 /* 粒子池：每个粒子有自己的位置、速度、寿命、大小、颜色、透明度 */
 function particlePool(scene, max, tex, blending = THREE.NormalBlending) {
   const geo = new THREE.BufferGeometry();
@@ -50,16 +67,16 @@ function particlePool(scene, max, tex, blending = THREE.NormalBlending) {
   return {
     emit(x, y, z, o = {}) {
       const p = P[next]; next = (next + 1) % max;
-      Object.assign(p, { x, y, z, vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, life: o.life || 1, max: o.life || 1, s: o.size || 0.12, c: o.color || WHITE, g: o.gravity || 0 });
+      Object.assign(p, { x, y, z, vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, life: o.life || 1, max: o.life || 1, s: o.size || 0.12, c: o.color || WHITE, g: o.gravity || 0, grow: o.grow || 0, drag: o.drag || 0 });
     },
     update(dt) {
       for (let i = 0; i < max; i++) {
         const p = P[i];
-        if (p.life > 0) { p.life -= dt; p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
+        if (p.life > 0) { p.life -= dt; p.vy -= p.g * dt; if (p.drag) { const d = Math.exp(-p.drag * dt); p.vx *= d; p.vy *= d; p.vz *= d; } p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
         const k = Math.max(0, p.life / p.max);
         pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
         col[i * 3] = p.c.r; col[i * 3 + 1] = p.c.g; col[i * 3 + 2] = p.c.b;
-        alpha[i] = p.life > 0 ? Math.min(1, k * 1.6) : 0; size[i] = p.s * (0.4 + 0.6 * k);
+        alpha[i] = p.life > 0 ? Math.min(1, k * 1.6) : 0; size[i] = p.grow ? p.s * (1 + (1 - k) * p.grow) : p.s * (0.4 + 0.6 * k); // grow：越来越大（冲击波、光圈）
       }
       for (const n of ['position', 'color', 'aAlpha', 'aSize']) geo.attributes[n].needsUpdate = true;
     },
@@ -112,6 +129,14 @@ export function createSprite(host, opts = {}) {
   const stars = new THREE.Points(starGeo, starMat); root.add(stars);
 
   const trail = particlePool(scene, 180, spriteTexture('star'));
+  /* 技能特效：每种贴图一个粒子池，叠加发光；颜色取形象包 manifest 的 theme（没有就用粉 / 紫 / 青） */
+  /* 正常混合、饱和色、放大 1.8 倍：桌面和泡泡多是浅色，叠加发光的白光在上面几乎看不见 */
+  const FX = Object.fromEntries(['glow', 'ring', 'spark', 'star', 'swirl', 'streak'].map(k => [k, particlePool(scene, k === 'glow' || k === 'star' ? 160 : 60, fxTexture(k, opts.fx && opts.fx[k]))]));
+  const theme = (opts.pack && Array.isArray(opts.pack.theme) && opts.pack.theme.length ? opts.pack.theme : []).map(c => { try { return new THREE.Color(c); } catch { return null; } }).filter(Boolean);
+  const DEEP = [new THREE.Color(0xec4899), new THREE.Color(0x8b5cf6), new THREE.Color(0x3b82f6)], ELECTRIC = new THREE.Color(0x0ea5e9);
+  const FXC = theme.length ? [...theme, ...DEEP] : DEEP;
+  const fxc = i => FXC[i % FXC.length];
+  for (const p of Object.values(FX)) { const emit = p.emit; p.emit = (x, y, z, o = {}) => emit(x, y, z, { ...o, size: (o.size || 0.12) * 1.8, color: o.color === WHITE ? DEEP[1] : o.color === CYAN ? ELECTRIC : o.color }); }
   const hearts = particlePool(scene, 16, spriteTexture('heart'));
 
   /* 施法魔法阵 */
@@ -306,7 +331,7 @@ export function createSprite(host, opts = {}) {
       }
     }
     if (zz > 0.6 && Math.random() < dt * 0.8) trail.emit(root.position.x + 0.25, 1.5, 0.2, { vx: 0.12, vy: 0.25, life: 1.8, size: 0.14, color: VIOLET });
-    trail.update(dt); hearts.update(dt);
+    trail.update(dt); hearts.update(dt); for (const p of Object.values(FX)) p.update(dt0); // 技能特效按真实时间放：电脑再忙也看得清
 
     // ---- 魔法阵 ----
     rings.forEach(m => {
@@ -323,6 +348,40 @@ export function createSprite(host, opts = {}) {
   }
   requestAnimationFrame(frame);
 
+  /* 边飞边放的技能（1.8.0）。dir：飞行方向（左 -1 / 右 1），能量球往前打 */
+  const dirNow = () => (Math.abs(st.ext.x) > 30 ? Math.sign(st.ext.x) : Math.sign(st.face) || 1);
+  const later = (ms, fn) => setTimeout(fn, ms); // 特效按真实时间排（粒子也按真实时间走）
+  const FXSKILL = {
+    psywave(cx, cy) { // 念力波：三圈光环向外扩散
+      st.burst = 1; startTrick('stretch');
+      for (let k = 0; k < 3; k++) later(k * 140, () => { const x = root.position.x, y = root.position.y + 0.95; FX.ring.emit(x, y, 0.2, { life: 0.75, size: 0.5, grow: 4.5, color: fxc(k) }); FX.glow.emit(x, y, 0.2, { life: 0.35, size: 0.9, color: WHITE }); });
+    },
+    orb(cx, cy) { // 能量球：先在身前聚光，再往飞行方向打出去
+      const d = dirNow(); st.castTarget = 1; startTrick('stretch');
+      for (let i = 0; i < 24; i++) { const a = Math.random() * Math.PI * 2, r = 0.7; FX.glow.emit(cx + d * 0.45 + Math.cos(a) * r, cy + Math.sin(a) * r, 0.3, { vx: -Math.cos(a) * r * 2.4, vy: -Math.sin(a) * r * 2.4, life: 0.42, size: 0.14, color: fxc(i) }); }
+      later(420, () => {
+        st.castTarget = 0; st.burst = 1; const x = root.position.x + d * 0.5, y = root.position.y + 0.95;
+        FX.glow.emit(x, y, 0.3, { vx: d * 1.8, life: 0.9, size: 0.75, color: fxc(1) }); FX.glow.emit(x, y, 0.31, { vx: d * 1.8, life: 0.85, size: 0.38, color: WHITE });
+        for (let i = 0; i < 6; i++) FX.streak.emit(x - d * i * 0.1, y + (Math.random() - 0.5) * 0.25, 0.3, { vx: d * (1.6 + Math.random() * 0.6), life: 0.7, size: 0.5, color: fxc(i) });
+        for (let i = 0; i < 14; i++) FX.spark.emit(x, y, 0.3, { vx: d * (1 + Math.random() * 2), vy: (Math.random() - 0.5) * 2.4, life: 0.3 + Math.random() * 0.2, size: 0.22, drag: 3, color: i % 2 ? WHITE : CYAN });
+      });
+    },
+    meteor() { // 流星：一串星星从上方斜着落下
+      st.burst = 0.7; startTrick('giggle');
+      for (let i = 0; i < 14; i++) later(i * 60, () => { const x = root.position.x + (Math.random() - 0.3) * 1.6, y = root.position.y + 2.1; const v = 2.6 + Math.random() * 1.2;
+        FX.star.emit(x, y, 0.4, { vx: -v * 0.55, vy: -v, life: 0.7, size: 0.2 + Math.random() * 0.12, color: fxc(i) }); FX.streak.emit(x + 0.15, y + 0.25, 0.39, { vx: -v * 0.55, vy: -v, life: 0.5, size: 0.4, color: WHITE }); });
+    },
+    spark(cx, cy) { // 电光：身体周围噼里啪啦的闪电
+      st.burst = 0.9; startTrick('giggle');
+      for (let i = 0; i < 18; i++) later(i * 50, () => { const a = Math.random() * Math.PI * 2, r = 0.4 + Math.random() * 0.35;
+        FX.spark.emit(root.position.x + Math.cos(a) * r, root.position.y + 0.95 + Math.sin(a) * r, 0.35, { life: 0.3 + Math.random() * 0.15, size: 0.45 + Math.random() * 0.25, color: i % 3 ? CYAN : fxc(i) }); FX.glow.emit(root.position.x, root.position.y + 0.95, 0.2, { life: 0.12, size: 0.6, color: CYAN }); });
+    },
+    swirl(cx, cy) { // 旋风：一边转一边甩出光
+      st.burst = 1; startTrick('spin');
+      for (let k = 0; k < 4; k++) later(k * 110, () => FX.swirl.emit(root.position.x, root.position.y + 0.95, 0.1, { life: 0.6, size: 0.6, grow: 2.2, color: fxc(k) }));
+      for (let i = 0; i < 20; i++) { const a = (i / 20) * Math.PI * 2; FX.star.emit(cx, cy, 0.3, { vx: Math.cos(a) * 2.2, vy: Math.sin(a) * 2.2, life: 0.5, size: 0.12, drag: 2, color: fxc(i) }); }
+    },
+  };
   function heartBurst(n = 6) {
     for (let i = 0; i < n; i++) hearts.emit(root.position.x, root.position.y + 1.3, 0.3, { vx: (Math.random() - 0.5) * 0.9, vy: 0.5 + Math.random() * 0.5, life: 1.2 + Math.random() * 0.4, size: 0.18 + Math.random() * 0.1, gravity: 0.3, color: WHITE });
   }
@@ -362,7 +421,10 @@ export function createSprite(host, opts = {}) {
           heartBurst(5); startTrick('loop');
         }, 900);
       } else if (name === 'sparkle') { heartBurst(8); st.burst = 0.8; startTrick('giggle'); }
+      else if (FXSKILL[name]) FXSKILL[name](cx, cy);
     },
+    /* 能边飞边放的技能（1.8.0）：只放特效和小把戏，不打断飞行 */
+    get fxSkills() { return Object.keys(FXSKILL); },
     cast(on) { st.castTarget = on ? 1 : 0; st.sleepy = 0; if (on) st.burst = 1; },
     fps(v) { gap = 1 / v; },
     tempo(v) { st.tempoTo = Math.max(1, Math.min(4, Number(v) || 1)); if (st.tempoTo > 1.4) st.sleepy = 0; },

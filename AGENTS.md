@@ -32,6 +32,7 @@
 | 动作 id | 名称 | 类型 |
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
+| `skill.combo` `skill.psywave` `skill.orb` `skill.meteor` `skill.spark` `skill.swirl` | 连招 念力波 能量球 流星 电光 旋风（1.8.0，能边飞边放；默认「互动」里只放了连招，其余可在设置 › 气泡里加） | 精灵技能 |
 | `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的页面）、主窗口（上次看的页面）；主窗口还有「聊天」页（Star，见 §4.5） | 命令 |
 | `app.peers` | 串门（去好友桌面找资料，代码里叫 peers；1.8.0 之前叫「搬运」） | 面板 |
 | `sys.load` | 占用（气泡中间显示 CPU、下面显示内存，越忙颜色越暖；点开活动监视器 / 任务管理器） | 命令 |
@@ -232,6 +233,8 @@ test/                      node --test，全部用假服务和虚构样例
 - **精灵怎么动**（1.7.0，参考 RunCat，`settings.sprite`，设置 › 气泡）：
   - `hoverMenu`（默认开）：鼠标在精灵上停 0.35 秒就打开气泡；这样打开的，鼠标离开精灵和气泡 0.9 秒就收起（`hud.js` 的 `hoverMenu`）。刚悬停打开时点一下精灵不会收起。
   - `motion`：`cpu`（默认）/ `cpu+mem`（两者平均）/ `off`。`app/main/sysload.mjs` 每 2 秒采样（CPU 扣掉 JM Desk 自己的占用、做平滑；macOS 内存按 vm_stat 的活动 + 联动 + 压缩页），`tempoFor` 映射成 1–3.5 倍速：三成以下正常，九成以上最快。`engine.mjs` 的 `tempo()` 让动画时间按倍速推进（翅膀、尾巴、小把戏都更快，忙时不打瞌睡）；`sprite.js` 自由飞时速度乘倍速、歇得更短，倍速 2 以上常常满屏快飞。系统设置里开了「减少动态效果」时不加速。
+  - `flyCast`（1.8.0，默认开）：**边飞边放技能**。念力波 / 能量球 / 流星 / 电光 / 旋风（`engine.mjs` 的 `FXSKILL`）只放特效和小把戏，不打断飞行；飞着时爆发、爱心也不停下来（`sprite.js` 的 `castSkill` / `airCast`）。飞得快时隔 2.5–6 秒（除以倍速）有几率顺手放一个，电脑越忙放得越勤。「连招」满屏快飞、路上依次放五个技能。特效按真实时间播放（不跟倍速），正常混合、饱和色，浅色桌面上也看得清；颜色取形象包 manifest 的 `theme`。
+  - **技能特效素材**：默认用代码画的贴图（光斑、光环、闪电、星星、旋风、拖尾），不随包带第三方素材。把 CC0 素材包（如 Kenney Particle Pack）的 PNG 放进 `DATA/extensions/fx/`，按文件名对上就替换：`flare_ / light_` → 光斑，`circle_0` → 光环，`spark_` → 闪电，`star_` → 星星，`twirl_` → 旋风，`trace_` → 拖尾（`main.mjs` 的 `FX_NAMES` / `fxFiles`）。用户放的素材只留在 `DATA`。
 - 右键菜单不用系统原生菜单。
 - 面板钉住的状态以主进程为准（`panel:pin` / `panel:pin-state`）。
 - 说明文字最多两行；长路径只显示文件名，完整内容放在悬停提示里。
