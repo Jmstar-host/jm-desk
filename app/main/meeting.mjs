@@ -56,8 +56,19 @@ function micIndex(ffmpeg) {
       if (l.includes('AVFoundation audio devices')) { inAudio = true; continue; }
       if (!inAudio) continue; const m = l.match(/\[(\d+)\]\s+(.+?)\s*$/); if (m) devs.push({ i: Number(m[1]), name: m[2] });
     }
-    const pick = devs.find(d => /MacBook|Built-?in|内建|麦克风/i.test(d.name) && !/iPhone|iPad/i.test(d.name)) || devs.find(d => !/iPhone|iPad|ZoomAudio|BlackHole|Teams|Virtual/i.test(d.name)) || devs[0];
-    res(pick ? pick : { i: 0, name: '默认输入' });
+    res(pickMic(devs) || { i: 0, name: '默认输入' });
+  }));
+}
+/* 选 Mac 本机的麦克风：先认 MacBook / 内建，再排除手机（连续互通的「“某某”的麦克风」）和各种虚拟声卡 */
+const NOT_MIC = /iPhone|iPad|“.+”的|".+"的|ZoomAudio|BlackHole|Teams|Virtual|Youdao|有道|Jump Desktop|Oray|向日葵|Loopback|Soundflower|Aggregate|聚集/i;
+export const pickMic = devs => devs.find(d => /MacBook|Built-?in|内建|内置/i.test(d.name) && !NOT_MIC.test(d.name)) || devs.find(d => !NOT_MIC.test(d.name)) || null;
+/** 实时字幕程序（whisper-stream，SDL）自己的设备编号和 ffmpeg 的不一样（1.5.0 之前直接用 ffmpeg 的编号，结果开到了 Teams 之类的虚拟声卡，没有字幕）。
+ *  让它用一个不存在的模型启动：列完设备就退出（约 1.5 秒），再按名字对上同一个麦克风 */
+export function parseSdlDevices(text) { const out = []; for (const l of String(text || '').split('\n')) { const m = l.match(/Capture device #(\d+): '(.+)'\s*$/); if (m) out.push({ i: Number(m[1]), name: m[2] }); } return out; }
+function sdlIndex(bin, name) {
+  return new Promise(res => execFile(bin, ['-m', path.join(os.tmpdir(), 'jm-desk-no-model.bin'), '--capture', '-1'], { timeout: 10000 }, (_e, o, err) => {
+    const devs = parseSdlDevices(String(o || '') + '\n' + String(err || ''));
+    const hit = devs.find(d => d.name === name) || pickMic(devs); res(hit ? hit.i : null);
   }));
 }
 export const cleanLine = s => dedupeRun(toSimplified(String(s || '').replace(ANSI, '').replace(NOISE, '').replace(/^\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*/, '').replace(/\s+/g, ' ').trim()));
@@ -84,7 +95,7 @@ export function liveParser(m, onLive) {
       if (keep(t) && t !== m.lines.at(-1) && !(m.lines.at(-1) || '').endsWith(t)) { m.lines.push(t); onLive({ text: t, final: true, at: Date.now() - m.t0 }); }
       lastDraft = '';
     }
-    const draft = lastOf(buf);
+    let draft = lastOf(buf); if (draft === m.lines.at(-1)) draft = ''; // 刚定稿的那句不再当草稿重复显示
     if (draft !== lastDraft) { lastDraft = draft; onLive({ text: keep(draft) ? draft : '', final: false, at: Date.now() - m.t0 }); }
   };
 }
@@ -97,10 +108,10 @@ export function createMeeting({ dataDir, onLive = () => {}, onState = () => {} }
   async function start({ topic = '' } = {}) {
     if (cur) throw new Error('已经在记录一场会议了');
     const st = status(dataDir); if (!st.ok) throw Object.assign(new Error('会议纪要还缺：' + st.missing.join('、')), { missing: st.missing });
-    const mic = await micIndex(st.bins.ffmpeg), id = crypto.randomBytes(6).toString('hex'), wav = path.join(tmpDir, `rec-${id}.wav`);
+    const mic = await micIndex(st.bins.ffmpeg), sdl = await sdlIndex(st.bins.stream, mic.name), id = crypto.randomBytes(6).toString('hex'), wav = path.join(tmpDir, `rec-${id}.wav`);
     const rec = spawn(st.bins.ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation', '-i', `:${mic.i}`, '-ar', '16000', '-ac', '1', '-f', 'wav', wav], { stdio: ['pipe', 'ignore', 'pipe'] });
     // 实时字幕：每 2 秒把最近 8 秒重新转一遍（同一行原地改），一行说完才换行。参数和 DSH NEXT 一样
-    const live = spawn(st.bins.stream, ['-m', st.modelPath, '-l', 'zh', '--capture', String(mic.i), '--step', '2000', '--length', '8000', '--keep', '600', '--keep-context', '--no-fallback',
+    const live = spawn(st.bins.stream, ['-m', st.modelPath, '-l', 'zh', ...(sdl != null ? ['--capture', String(sdl)] : []), '--step', '2000', '--length', '8000', '--keep', '600', '--keep-context', '--no-fallback',
       '--max-tokens', '96', '--vad-thold', '0.6', '--freq-thold', '100', '-t', String(Math.max(2, Math.min(6, os.cpus().length - 2)))], { stdio: ['ignore', 'pipe', 'pipe'] });
     cur = { id, topic: String(topic || '').trim().slice(0, 60), startedAt: new Date().toISOString(), t0: Date.now(), wav, rec, live, mic: mic.name, lines: [], model: st.modelPath, cli: st.bins.cli, recErr: '' };
     const m = cur;

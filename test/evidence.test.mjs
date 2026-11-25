@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as wm from '../app/main/workmodel.mjs';
-import { cleanTranscript, meetingSignal, buildMinutesPrompt, liveParser, toSimplified } from '../app/main/meeting.mjs';
+import { cleanTranscript, meetingSignal, buildMinutesPrompt, liveParser, toSimplified, pickMic, parseSdlDevices } from '../app/main/meeting.mjs';
 
 const sources = [{ id: 's1', sourceLabel: '飞书', title: 'IoT 对接群', at: '2026-11-18T10:00:00Z' }];
 test('录入需求：描述里带每个字段的依据（摘录 + 出处），人工补充的写明，不带线索全文', () => {
@@ -53,4 +53,15 @@ test('会议纪要实时字幕：原地修订只出一句定稿；繁体转简�
   m.stopping = true; assert.doesNotThrow(() => feed('还有一句\n')); assert.equal(m.lines.length, 2);
   assert.equal(toSimplified('需求還沒確認'), '需求还没确认');
   assert.equal(cleanTranscript('字幕志愿者 杨栋梁\n嗯嗯\n请不吝点赞 订阅 转发 打赏支持明镜与点点栏目'), '');
+});
+
+test('会议纪要选麦克风：认 MacBook / 内建，排除手机和虚拟声卡；实时字幕程序按名字对编号（两边顺序不同）', () => {
+  const av = [{ i: 0, name: 'Jump Desktop Audio' }, { i: 1, name: 'MacBook Pro麦克风' }, { i: 4, name: 'Microsoft Teams Audio' }];
+  assert.equal(pickMic(av).name, 'MacBook Pro麦克风');
+  assert.equal(pickMic([{ i: 0, name: '“小王”的麦克风' }, { i: 1, name: 'Youdao Audio Device' }, { i: 2, name: 'USB Audio Device' }]).name, 'USB Audio Device');
+  const sdl = parseSdlDevices("init: found 3 capture devices:\ninit:    - Capture device #0: 'MacBook Pro麦克风'\ninit:    - Capture device #1: 'Microsoft Teams Audio'\ninit:    - Capture device #2: 'Jump Desktop Audio'");
+  assert.equal(sdl.find(d => d.name === pickMic(av).name).i, 0, 'ffmpeg 里是 1 号，实时字幕程序里是 0 号');
+  const m = { lines: [], t0: Date.now(), stopping: false }, got = [], feed = liveParser(m, l => got.push(l));
+  feed('\x1b[2K\r下周三上线\n\x1b[2K\r下周三上线');
+  assert.deepEqual(got.map(l => [l.final, l.text]), [[true, '下周三上线']], '定稿后同一句不再作为草稿出现');
 });
