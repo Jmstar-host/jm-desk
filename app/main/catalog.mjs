@@ -30,6 +30,7 @@ export const CATALOG = {
   'app.settings':   { kind: 'app', icon: 'sliders', label: '设置', tip: '形象、气泡、需求管理平台、接入、模型' },
   'app.reminders':  { kind: 'app', icon: 'bell', label: '提醒', tip: '订饭、吃饭、下班提醒，时间可以自己设' },
   'app.update':     { kind: 'app', icon: 'inbox', label: '升级', tip: '检查并安装新版本' },
+  'app.library':    { kind: 'app', icon: 'box', label: '收资料', tip: '把文件拖到精灵身上，或在这里选文件，核对后传到知识库的资料库' },
   'mail.open':      { kind: 'cmd', icon: 'mail', label: '邮箱', tip: '打开邮件客户端' },
   'mail.compose':   { kind: 'cmd', icon: 'quill', label: '写邮件', tip: '新建一封邮件' },
   'mail.stats':     { kind: 'app', icon: 'chart', label: '未读', tip: '未读统计', count: 'unread' },

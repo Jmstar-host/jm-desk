@@ -15,6 +15,7 @@
       ],
       "readOnly": true,
       "knowledge": true,
+      "library": { "base": "https://knowledge.example.com/console" },
       "allowTools": [
         "knowledge_search",
         "knowledge_ask",

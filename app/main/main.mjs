@@ -28,6 +28,7 @@ import * as localMcp from './localmcp.mjs';
 import { createThreads } from './threads.mjs';
 import * as executors from './executors.mjs';
 import * as peerFiles from './peerfiles.mjs';
+import * as library from './library.mjs';
 import { Notification } from 'electron';
 
 const require = createRequire(import.meta.url);
@@ -718,6 +719,7 @@ ipcMain.on('jm-buddy-float', (e, json) => {
   if (m.type === 'action') runAction(m.id);
   else if (m.type === 'savePos') { const s = settings(); s.pos = { x: Math.round(m.x), y: Math.round(m.y) }; store.write('settings.json', s); }
   else if (m.type === 'move' && sprite && px(m.x) !== null && px(m.y) !== null) sprite.setPosition(px(m.x), px(m.y));
+  else if (m.type === 'drop') receiveFiles(m.paths);
   else if (m.type === 'quit') app.quit();
 });
 ipcMain.handle('panel:state', () => (scanCharacters(), { theme: themeFor(),
@@ -1098,6 +1100,84 @@ let lastLoad = null;
 sysload.startSampler(l => { lastLoad = l; const c = spriteCfg(); toSprite({ type: 'load', cpu: l.cpu, mem: l.mem, tempo: sysload.tempoFor(sysload.loadFor(c.motion, l.cpu, l.mem)) }); }, 2000,
   () => app.getAppMetrics().reduce((n, m) => n + (m.cpu?.percentCPUUsage || 0), 0) / 100 / Math.max(1, os.cpus().length)); // 扣掉 JM Desk 自己
 function sayToSprite(title, sub, ms = 0) { toSprite({ type: 'say', title, sub, ms, trick: 'wave' }); }
+
+/* ---------- 收资料（1.9.0，library.mjs）：把文件拖到精灵身上 → 面板「收资料」里核对文件、选归类 → 人点「上传」才发给知识库的资料库 ----------
+ * 哪个知识库能收：标了 knowledge 的接入里写了 library: { base }（企业预置文件里写）。凭据沿用这个接入的个人 Key，只在主进程用。
+ * 待传的清单和这一次的结果只放在内存里；不给助手和本机 AI 开这个口子，上传只能由人在面板里点。 */
+const LIB = { files: [], results: null, running: false, stop: false, me: new Map() };
+const libTargets = () => library.targets(allIntegrations());
+function libToken(integ) {
+  let t = integ.credential?.type === 'bearer' ? integCredential(integ) : '';
+  if (!t) { const a = String((integSecret(integ.id).headers || {}).Authorization || ''); if (/^Bearer\s+/i.test(a)) t = a.replace(/^Bearer\s+/i, '').trim(); }
+  return t;
+}
+function libTarget(id) {
+  const t = libTargets().find(x => x.id === id) || null; if (!t) throw new Error('这个知识库现在不能收资料');
+  return { ...t, token: libToken(allIntegrations().find(i => i.id === t.id)) };
+}
+const libStat = p => { const s = fs.statSync(p); return { isFile: s.isFile(), isDirectory: s.isDirectory(), size: s.size }; };
+const libView = () => ({ targets: libTargets().map(({ id, name }) => ({ id, name })), running: LIB.running, results: LIB.results, max: { files: library.MAX_FILES, size: library.sizeText(library.MAX_BYTES) },
+  files: LIB.files.map(f => ({ path: f.path, name: f.name, size: library.sizeText(f.size), ok: f.ok, reason: f.reason })), visibility: library.VISIBILITY });
+function pushLib() { if (panel && !panel.isDestroyed()) panel.webContents.send('lib:update', libView()); }
+function libAdd(paths) {
+  paths = (Array.isArray(paths) ? paths : []).filter(p => typeof p === 'string' && p && path.isAbsolute(p)).slice(0, 200);
+  if (!paths.length || LIB.running) return 0;
+  LIB.files = library.checkFiles([...LIB.files.map(f => f.path), ...paths], libStat); LIB.results = null; pushLib();
+  return LIB.files.filter(f => f.ok).length;
+}
+function receiveFiles(paths) {
+  if (LIB.running) return toSprite({ type: 'say', title: '上一批还在上传', sub: '传完再拖给我', ms: 6000, trick: 'wave', action: { id: 'app.library' } });
+  const before = LIB.files.length, ok = libAdd(paths); if (LIB.files.length === before && !ok) return;
+  const bad = LIB.files.length - ok;
+  toSprite({ type: 'say', title: ok ? `📥 接住了 ${ok} 份` : '这些我收不了', sub: ok ? (libTargets().length ? '核对一下，点「上传」放进知识库' : '还没有接能收资料的知识库') + (bad ? `（另有 ${bad} 份收不了）` : '') : LIB.files.find(f => !f.ok)?.reason || '', ms: 9000, trick: 'loop', action: { id: 'app.library' } });
+  openPanel('app.library');
+}
+ipcMain.handle('lib:state', () => libView());
+ipcMain.handle('lib:add', (_e, paths) => { libAdd(paths); return libView(); });
+ipcMain.handle('lib:remove', (_e, p) => { if (!LIB.running) { LIB.files = LIB.files.filter(f => f.path !== p); LIB.results = null; } return libView(); });
+ipcMain.handle('lib:clear', () => { if (!LIB.running) { LIB.files = []; LIB.results = null; } return libView(); });
+ipcMain.handle('lib:pick', async () => {
+  const r = await dialog.showOpenDialog(panel && !panel.isDestroyed() ? panel : undefined, { title: '选择要放进知识库的文件', properties: ['openFile', 'multiSelections'],
+    filters: [{ name: '资料库能收的文件', extensions: [...library.ALLOWED_EXT].map(x => x.slice(1)) }] });
+  if (!r.canceled) libAdd(r.filePaths);
+  return libView();
+});
+/* 我能往哪里传（大类、平台、部门、有没有上传权限）：问资料库，缓存 2 分钟 */
+ipcMain.handle('lib:me', safe(async (_e, id, fresh) => {
+  const t = libTarget(String(id)), hit = LIB.me.get(t.id);
+  if (!fresh && hit && Date.now() - hit.at < 120e3) return hit.v;
+  const v = await library.whoami({ base: t.base, token: t.token, fetchImpl: (u, o) => net.fetch(u, o) });
+  LIB.me.set(t.id, { at: Date.now(), v }); return v;
+}));
+ipcMain.handle('lib:upload', safe(async (_e, id, opts) => {
+  if (LIB.running) throw new Error('正在上传');
+  const t = libTarget(String(id)), files = LIB.files.filter(f => f.ok); if (!files.length) throw new Error('没有可以上传的文件');
+  const o = opts && typeof opts === 'object' ? opts : {}, clean = { visibility: o.visibility === 'dept' ? 'dept' : 'all', domain: String(o.domain || '').slice(0, 60), platform: String(o.platform || '').slice(0, 60), dept: String(o.dept || '').slice(0, 80), tags: String(o.tags || '').slice(0, 200) };
+  LIB.running = true; LIB.stop = false; LIB.results = files.map(f => ({ name: f.name, status: 'waiting', note: '' })); pushLib();
+  toSprite({ type: 'cast', on: true });
+  try {
+    const out = await library.uploadAll({ base: t.base, token: t.token, files, opts: clean, read: p => fs.promises.readFile(p), fetchImpl: (u, x) => net.fetch(u, x), stopped: () => LIB.stop,
+      onStep: (i, it) => { LIB.results[i] = { name: it.name, status: it.status, note: it.note }; pushLib(); } });
+    const done = out.filter(x => x.status === 'queued' || x.status === 'duplicate' || x.status === 'unknown').length, failed = out.length - done;
+    const gone = new Set(out.map((x, i) => (x.status === 'failed' ? null : files[i].path)).filter(Boolean));
+    LIB.files = LIB.files.filter(f => !gone.has(f.path)); // 没传上去的留着，改一下归类可以再传
+    toSprite({ type: 'say', title: failed ? `传上去 ${done} 份，${failed} 份没成` : `✅ ${done} 份已交给「${t.name}」`, sub: failed ? '点我看原因' : '资料库 AI 预审通过后就能查到', ms: 12000, trick: failed ? 'wave' : 'loop', action: { id: 'app.library' } });
+    return { done, failed };
+  } finally { LIB.running = false; LIB.stop = false; toSprite({ type: 'cast', on: false }); pushLib(); }
+}));
+ipcMain.handle('lib:stop', () => { if (LIB.running) LIB.stop = true; return true; });
+/* 拖着文件过来时系统不发鼠标移动事件，而精灵窗口平时是穿透的，收不到拖放：
+ * 主进程隔 150 毫秒看一眼鼠标在不在精灵窗口里，在就告诉精灵，由它判断是不是落在泡泡上并开始接鼠标（单向消息，不让精灵来问）。 */
+let cursorInSprite = false;
+function watchCursor() {
+  setInterval(() => {
+    if (!sprite || sprite.isDestroyed() || !sprite.isVisible()) return;
+    let p, b; try { p = screen.getCursorScreenPoint(); b = sprite.getBounds(); } catch { return; }
+    const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+    if (inside || cursorInSprite) toSprite({ type: 'cursor', x: p.x - b.x, y: p.y - b.y, inside });
+    cursorInSprite = inside;
+  }, 150);
+}
 async function pushCounts() {
   try { const m = await services.mailStats(); const tasks = services.tasks().filter(t => t.status === 'open').length;
     toSprite({ type: 'counts', unread: m.available ? m.human : 0, tasks }); pushUnread('mail', m.available ? m.human : 0, `${m.available ? m.human : 0} 封未读邮件`); pushUnread('work', tasks, `${tasks} 条待办`); toSprite({ type: 'badge', n: tasks }); deskSend('desk:counts', { work: tasks }); } catch {}
@@ -1342,6 +1422,7 @@ app.whenReady().then(() => {
   setTimeout(checkReminders, 8000); setInterval(checkReminders, 20000); // 员工提醒
   setTimeout(() => peerHub.ensureLoop(), 3000); // 串门收信
   startStar(); // Star：每分钟同步一次（配对、未读、勾选会话的线索）
+  watchCursor(); // 收资料：拖着文件靠近精灵时让它接得住
   setTimeout(() => checkUpdate(), 15000); setInterval(() => checkUpdate(), 6 * 3600e3); // 启动后 15 秒检查一次，之后每 6 小时
   // 电脑睡了一夜醒来、屏幕解锁时也查一次（离上次超过 30 分钟才查；等 20 秒让网络先连上），长期不退出的人也能及时收到
   const wakeCheck = () => { if (Date.now() - lastUpdCheck > 30 * 60e3) setTimeout(() => checkUpdate(), 20000); };

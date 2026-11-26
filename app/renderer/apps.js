@@ -181,8 +181,89 @@ async function pagePeers(body) {
   peerRedraw = draw; await draw();
 }
 
+/* 收资料（1.9.0）：拖到精灵身上的文件先列在这里，人核对文件、选好归类，点「上传」才发给知识库的资料库。
+ * 这一页本身也能接拖放；清单和结果由主进程推送（lib:update）。 */
+let libDraw = null;
+require('electron').ipcRenderer.on('lib:update', (_e, v) => { if (libDraw && page === 'app.library') libDraw(v); });
+async function pageLibrary(body) {
+  const box = h('div'); body.append(box);
+  const pick = { target: null, domain: '', platform: '', visibility: 'all', dept: '', tags: '' };
+  const meOf = new Map(); let msg = null;
+  const ICON = { waiting: '·', uploading: '…', queued: '✓', duplicate: '=', unknown: '✓', failed: '!' };
+  const loadMe = async (id, fresh) => {
+    meOf.set(id, { loading: true });
+    try { meOf.set(id, { v: await call('lib:me', id, fresh) }); } catch (e) { meOf.set(id, { error: e.message }); }
+    ipcRenderer.invoke('lib:state').then(v => libDraw && libDraw(v));
+  };
+  libDraw = S => {
+    const cards = [], okN = S.files.filter(f => f.ok).length;
+    if (!S.targets.length) {
+      cards.push(h('div', { class: 'card' }, h('h3', {}, '还没有能收资料的知识库'),
+        h('div', { class: 'muted' }, '知识库接入里要写明资料库的地址才能收文件，一般由管理员在预置里配好；配好后把文件拖到精灵身上就行。'),
+        h('div', { class: 'row' }, h('button', { onclick: () => ipcRenderer.send('panel:action', 'app.settings') }, '打开设置'))));
+      return box.replaceChildren(...cards);
+    }
+    if (!S.targets.some(t => t.id === pick.target)) pick.target = S.targets[0].id;
+    const tname = S.targets.find(t => t.id === pick.target).name, M = meOf.get(pick.target);
+    if (!M) loadMe(pick.target);
+    const me = M && M.v;
+    // 文件
+    const fl = h('div', { class: 'card' }, h('h3', {}, okN ? `要上传的文件 ${okN} 份` : S.files.length ? '这些文件收不了' : '把文件拖到精灵身上，或拖到这里'));
+    const one = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    for (const f of S.files) fl.append(h('div', { class: 'row', style: 'gap:8px' }, h('span', { style: one + (f.ok ? '' : ';opacity:.55'), title: f.path }, f.name),
+      f.ok ? h('span', { class: 'muted', style: 'white-space:nowrap' }, f.size) : h('span', { class: 'tag warn', style: 'white-space:nowrap;max-width:55%;overflow:hidden;text-overflow:ellipsis', title: f.reason }, f.reason),
+      S.running ? null : h('button', { class: 'ghost sm', title: '不传这一份', onclick: () => ipcRenderer.invoke('lib:remove', f.path).then(libDraw) }, '×')));
+    if (!S.running) fl.append(h('div', { class: 'row' }, h('button', { onclick: () => ipcRenderer.invoke('lib:pick').then(libDraw) }, '＋ 选择文件'),
+      S.files.length ? h('button', { class: 'ghost', onclick: () => ipcRenderer.invoke('lib:clear').then(libDraw) }, '清空') : null,
+      h('span', { class: 'muted' }, `一次最多 ${S.max.files} 份，每份不超过 ${S.max.size}`)));
+    cards.push(fl);
+    // 结果（上传中也用它显示进度）
+    if (S.results) cards.push(h('div', { class: 'card' }, h('h3', {}, S.running ? '正在上传…' : '这一次的结果'),
+      ...S.results.map(r => h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'tag' + (r.status === 'failed' ? ' warn' : r.status === 'waiting' || r.status === 'uploading' ? '' : ' ok') }, ICON[r.status] || '·'),
+        h('span', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: r.name }, r.name),
+        h('span', { class: 'muted', style: 'max-width:58%;text-align:right', title: r.note }, r.status === 'waiting' ? '等待中' : r.status === 'uploading' ? '上传中…' : r.note))),
+      S.running ? h('div', { class: 'row' }, h('button', { onclick: () => ipcRenderer.invoke('lib:stop') }, '停止')) : null));
+    // 传到哪里
+    const to = h('div', { class: 'card' }, h('h3', {}, '传到哪里'));
+    if (S.targets.length > 1) to.append(h('div', { class: 'row' }, h('span', { class: 'muted' }, '知识库'), h('select', { style: 'flex:1;min-width:0', disabled: S.running, onchange: e => { pick.target = e.target.value; pick.domain = pick.platform = pick.dept = ''; libDraw(S); } }, ...S.targets.map(t => h('option', { value: t.id, selected: t.id === pick.target }, t.name)))));
+    if (!M || M.loading) to.append(h('div', { class: 'loading' }, h('i'), h('i'), h('i')));
+    else if (M.error) to.append(errBox(new Error(M.error)), h('div', { class: 'row' }, h('button', { onclick: () => loadMe(pick.target, true) }, '重试'), h('button', { class: 'ghost', onclick: () => ipcRenderer.send('panel:action', 'app.settings') }, '去设置里填个人 Key')));
+    else if (!me.canUpload) to.append(h('div', { class: 'muted' }, `${me.user || '这个账号'} 在「${tname}」里还没有上传权限，请联系知识库管理员开通。`), h('div', { class: 'row' }, h('button', { onclick: () => loadMe(pick.target, true) }, '重新检查')));
+    else {
+      if (!me.domains.includes(pick.domain)) pick.domain = me.needDims && me.domains.length === 1 ? me.domains[0] : '';
+      if (!me.platforms.includes(pick.platform)) pick.platform = me.needDims && me.platforms.length === 1 ? me.platforms[0] : '';
+      if (!me.depts.some(d => d.id === pick.dept)) pick.dept = '';
+      if (pick.visibility === 'dept' && !me.depts.length) pick.visibility = 'all';
+      const auto = me.needDims ? '请选择' : '让资料库自动归类';
+      const sel = (key, list, first) => h('select', { style: 'flex:1;min-width:0', disabled: S.running, onchange: e => { pick[key] = e.target.value; libDraw(S); } }, first == null ? null : h('option', { value: '' }, first), ...list.map(([v, n]) => h('option', { value: v, selected: v === pick[key] }, n)));
+      to.append(...[h('div', { class: 'muted' }, `以 ${me.user || '你的账号'} 的身份上传到「${tname}」`),
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, '大类'), sel('domain', me.domains.map(x => [x, x]), auto)),
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, '平台'), sel('platform', me.platforms.map(x => [x, x]), auto)),
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, '谁能看'), sel('visibility', Object.entries(S.visibility).filter(([k]) => k !== 'dept' || me.depts.length), null)),
+        me.depts.length > 1 ? h('div', { class: 'row' }, h('span', { class: 'muted' }, '归属部门'), sel('dept', me.depts.map(d => [d.id, d.name]), '按大类自动定')) : null,
+        h('div', { class: 'row' }, h('span', { class: 'muted' }, '标签'), h('input', { style: 'flex:1;min-width:0', value: pick.tags, placeholder: '可不填；多个用逗号隔开', disabled: S.running, oninput: e => { pick.tags = e.target.value; } }))].filter(Boolean));
+      const lack = me.needDims && (!pick.domain || !pick.platform);
+      const go = h('button', { class: 'pri', disabled: S.running || !okN || lack }, S.running ? '上传中…' : `上传 ${okN} 份`);
+      go.onclick = async () => { msg = null; go.disabled = true; try { await call('lib:upload', pick.target, { ...pick }); } catch (e) { msg = errBox(e); } ipcRenderer.invoke('lib:state').then(libDraw); };
+      to.append(h('div', { class: 'row' }, go, h('span', { class: 'muted' }, !okN ? '先放进文件' : lack ? '先选大类和平台' : '点了才会发出去')), ...(msg ? [msg] : []),
+        h('div', { class: 'muted' }, '上传后先由资料库 AI 预审，通过了才能被查到；密码、密钥这类凭据会被资料库自动剔除。'));
+    }
+    cards.push(to);
+    box.replaceChildren(...cards);
+  };
+  // 这一页也能直接接拖放
+  if (!body0.__libDrop) {
+    body0.__libDrop = true; let wu = null; try { wu = require('electron').webUtils; } catch (e) {}
+    const files = e => !!e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files') && page === 'app.library';
+    document.addEventListener('dragover', e => { if (files(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    document.addEventListener('drop', e => { if (!files(e)) return; e.preventDefault(); const ps = [...e.dataTransfer.files].map(f => { try { return wu ? wu.getPathForFile(f) : f.path || ''; } catch (err) { return ''; } }).filter(Boolean); if (ps.length) ipcRenderer.invoke('lib:add', ps).then(v => libDraw && libDraw(v)); });
+  }
+  libDraw(await ipcRenderer.invoke('lib:state'));
+}
+
 const APPS = {
   'app.peers': ['串门', pagePeers],
+  'app.library': ['收资料', pageLibrary],
   'app.reminders': ['提醒', pageReminders],
   'app.update': ['升级', pageUpdate],
   'mail.stats': ['邮箱未读', pageMailStats],

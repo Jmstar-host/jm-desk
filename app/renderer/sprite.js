@@ -150,6 +150,33 @@ document.addEventListener('mousemove', e => {
 });
 document.addEventListener('mouseleave', () => { clearTimeout(hoverT); if (!drag) { setIgnore(true); if (hovering) { hovering = false; mew.hover(false); } } });
 
+/* 收资料（1.9.0）：把文件拖到精灵身上松手，交给主进程核对，再在「收资料」面板里确认上传。
+ * 拖着文件时系统不发鼠标移动事件，上面的穿透判断不会跑，所以主进程会隔一会儿告诉这里鼠标在窗口里的位置（jm 消息 cursor）。 */
+let webUtils = null; try { webUtils = require('electron').webUtils; } catch (e) {}
+const hasFiles = e => !!e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+let catching = false;
+function setCatching(on) {
+  if (on === catching) return; catching = on; mew.hover(on);
+  if (on) { brainStay(20000); say('松手交给我', '我接住，你核对后再放进知识库', { ms: 0 }); } else closeBubble();
+}
+function cursorHint(m) {
+  if (drag) return;
+  if (!m.inside) { if (catching) setCatching(false); return setIgnore(true); }
+  if (overMew({ clientX: m.x, clientY: m.y })) setIgnore(false); // 只负责「接得住」；离开泡泡后的穿透仍由鼠标移动和拖放事件管
+}
+document.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); if (overMew(e)) setCatching(true); });
+document.addEventListener('dragover', e => {
+  if (!hasFiles(e)) return; e.preventDefault();
+  const om = overMew(e); e.dataTransfer.dropEffect = om ? 'copy' : 'none'; setCatching(om); if (!om) setIgnore(true);
+});
+document.addEventListener('dragleave', e => { if (e.relatedTarget) return; setCatching(false); setIgnore(true); });
+document.addEventListener('drop', e => {
+  if (!hasFiles(e)) return; e.preventDefault();
+  const on = catching || overMew(e); setCatching(false); if (!on) return;
+  const paths = [...e.dataTransfer.files].map(f => { try { return webUtils ? webUtils.getPathForFile(f) : f.path || ''; } catch (err) { return ''; } }).filter(Boolean);
+  if (paths.length) { mew.trick('loop'); send('drop', { paths }); }
+});
+
 /* 拖动：按住泡泡拖；移动不到 4 像素算点击 */
 $('stage').addEventListener('pointerdown', e => {
   if (e.button !== 0 || !overMew(e)) return;
@@ -196,6 +223,7 @@ ipcRenderer.on('jm', (_e, json) => {
   else if (m.type === 'say') { mew.trick(m.trick || 'wave'); say(m.title, m.sub, { ms: m.ms ?? 9000, action: m.action }); }
   else if (m.type === 'badge') { $('badge').style.display = 'none'; } // 1.8.3：右上角的待办角标并进左边的小气泡（work），主进程用 pushUnread 推
   else if (m.type === 'cast') mew.cast(!!m.on);
+  else if (m.type === 'cursor') cursorHint(m);
   else if (m.type === 'trip') { if (m.phase === 'leave') tripLeave(); else tripReturn(!!m.carry); }
   else if (m.type === 'corner') resetCorner(); // 托盘「回到右下角」：精灵跑到看不见的地方时用
   else if (m.type === 'fps') mew.fps(m.v);

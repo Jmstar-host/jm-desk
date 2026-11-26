@@ -145,6 +145,10 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - **回调 JM Desk**：打开了「让本机 AI 控制 JM Desk」时，Codex 这次运行会带上本机 MCP 端点（`-c mcp_servers.jm_desk.url=…`，令牌只走环境变量），可以读写工作区，写操作照旧弹窗确认。DSH 暂时没有这条通道。
   - Codex 的 `--json` 事件解析成和助手一样的步骤（命令、改文件、MCP 工具、中途说明）；用量记到 `usage.jsonl` 的 `exec-codex`。
 - **会议纪要**：1.4.0–1.5.1 有过本机 whisper 转写，1.5.2 去掉了——每台机器要装 whisper-cpp、ffmpeg 和 570 MB 模型，只支持 Mac，麦克风和虚拟声卡问题多，又和飞书会议 / 妙记、DSH NEXT 重复。会议内容走飞书会议纪要（`src/sources/feishu.mjs` 的 `feishu_meeting`），作为线索收进来；以前存下的 `meeting_local` 线索照常显示。不要再加回本机录音转写。
+- **收资料**（1.9.0，`app/main/library.mjs`，面板「收资料」= `apps.js` 的 `pageLibrary`，动作 `app.library`，默认布局里没有，想要气泡可在设置 › 气泡里加）：把文件拖到精灵身上松手 → 主进程核对（只收单个文件；类型、大小按资料库的规则先挡；一次最多 20 份）→ 面板里列出文件、选大类 / 平台 / 谁能看 / 标签 → **人点「上传」才发出去**。面板本身也能接拖放，或点「选择文件」。
+  - 哪个知识库能收：标了 `knowledge` 的接入里写 `library: { "base": "https://…" }`（资料库接口地址，写在企业预置文件里；只认 https）。凭据沿用这个接入的个人 Key，只在主进程用。接口约定写在 `library.mjs` 文件头：`GET <base>/api/me`（我能传的大类、平台、部门、有没有上传权限）、`POST <base>/api/upload`（请求体是文件原文，文件名和归类走请求头）。
+  - 上传是写操作：只能由人在面板里点，不做成助手或本机 AI 的工具；待传清单和结果只在内存里，不落盘。没传上去的留在清单里，改了归类可以再传。
+  - 精灵怎么接得住：精灵窗口平时鼠标穿透，拖着文件时系统又不发鼠标移动事件，所以主进程每 150 毫秒看一眼鼠标在不在精灵窗口里（`watchCursor`，单向消息 `cursor`），在泡泡上就让窗口开始接鼠标；`sprite.js` 的 `dragover` / `drop` 只在泡泡圆形里接。
 - **问知识**：在助手里问。会话里有 `knowledge: true` 的接入时，系统提示自动加上检索规则（先 `business_catalog` 确认平台，再带 platform 检索，必要时异步检索）。
 - **导入**：可以从 Claude Code、Claude Desktop、Cursor、Codex 的配置里导入 MCP，密钥直接加密保存，不经过界面。
 
@@ -185,7 +189,7 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
   - 预置文件顶层可以写 `star`：Star 私有聊天地址（https，或局域网的 http），主窗口「聊天」页直接打开它。
   - 预置文件顶层可以写 `mods`：MOD 库清单的 https 地址（见 §2）。
   - 预置文件顶层可以写 `update`：升级地址（`latest.json` 的 https 地址），打包时写进 `app/builtin/update.json`，打完自动清空。用中转的下载目录时是 `<中转地址>/dl/<下载口令>/latest.json`。
-  - 预置项可以写：`urls`（备用地址，只在连不上时切换）、`allowTools`（工具白名单）、`readOnly`、`knowledge: true`、`credential: { type: "bearer", label, help, inheritEnv }`。
+  - 预置项可以写：`urls`（备用地址，只在连不上时切换）、`allowTools`（工具白名单）、`readOnly`、`knowledge: true`、`library: { base }`（这个知识库的资料库接口地址，写了才能把文件拖给精灵上传，见 §5「收资料」）、`credential: { type: "bearer", label, help, inheritEnv }`。
   - **预置文件里不能放凭据**，脚本检测到会拒绝写入。凭据由使用者在界面里粘贴，或者填本机凭据文件的路径（只引用，不复制）。`inheritEnv` 会自动继承本机已有配置里同名变量指向的凭据文件。
   - 也可以由管理员直接在 `DATA/integrations-preset.json` 放同样格式的文件。
 - **应用内升级**（`app/main/updater.mjs`）：
@@ -217,6 +221,7 @@ relay/server.mjs           串门中转（只转发密文）
 app/main/gallery.mjs       形象库下载 / 导入
 app/main/updater.mjs       应用内升级
 app/main/knowledge.mjs     知识库直连（旧方式）
+app/main/library.mjs       收资料：把拖给精灵的文件上传到知识库的资料库（核对文件、取可选范围、上传）
 app/main/mail.mjs          Mailspring 本地库只读统计（在工作线程 mail-worker.mjs 里跑）
 app/renderer/sprite.*      精灵窗口：飞行、拖动、两圈菜单的几何
 app/renderer/hud.*         以精灵为中心的提示层：气泡菜单、说话气泡、右键卡片
@@ -251,7 +256,7 @@ test/                      node --test，全部用假服务和虚构样例
 **已完成**：
 - 精灵与界面：独立桌面应用（mac / win）、原创形象 Lumi 与形象包、形象库、两圈气泡与 AI 改布局、统一视觉与右键卡片。
 - 工作：线索、待办、需求池与工作体系，汇总与 AI 整理。
-- 接入与 AI：员工提醒、平台 API / MCP 接入、对话工作台（多轮对话的助手，原生工具调用，按会话限定工具范围）、本机执行者（把任务交给本机 Codex / DSH，在独立的执行项目里做）、问知识、多模型与 token 政策、串门（加好友、端到端加密中转、精灵登门动画）。
+- 接入与 AI：员工提醒、平台 API / MCP 接入、收资料（把文件拖给精灵，核对后上传到知识库的资料库）、对话工作台（多轮对话的助手，原生工具调用，按会话限定工具范围）、本机执行者（把任务交给本机 Codex / DSH，在独立的执行项目里做）、问知识、多模型与 token 政策、串门（加好友、端到端加密中转、精灵登门动画）。
 - 平台与发布：需求管理平台关联与收集、应用内升级、企业预置接入。
 
 **规划中（未实现，不要当成已有能力来写文档或调用）**：
