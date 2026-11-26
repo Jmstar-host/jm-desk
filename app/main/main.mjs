@@ -92,10 +92,17 @@ const LUMI_KEYS = ['body', 'body2', 'belly', 'cheek', 'eye', 'star', 'antenna', 
 /* ---------- 布局 / 形象 / 设置 ---------- */
 function loadLayout() {
   // 1.3.0 去掉了一些重复的入口：旧布局里的换成新的，并写回一次
-  const m = migrateLayout(store.read('layout.json', DEFAULT_LAYOUT));
-  if (m.changed && validateLayout(m.layout).ok) { try { fs.copyFileSync(store.file('layout.json'), store.file('layout.json.bak-1.3.0')); } catch {} store.write('layout.json', validateLayout(m.layout).layout); }
+  const before = store.read('layout.json', DEFAULT_LAYOUT);
+  const m = migrateLayout(before);
   const v = validateLayout(m.layout);
   if (!v.ok) { console.warn('layout.json 有问题，使用默认布局：', v.errors); return DEFAULT_LAYOUT; }
+  if (m.changed) {
+    const hasElements = Array.isArray(before.seen) && before.seen.includes('elements');
+    const backup = hasElements ? 'layout.json.bak-1.3.0' : 'layout.json.bak-element-fx';
+    try { fs.copyFileSync(store.file('layout.json'), store.file(backup), fs.constants.COPYFILE_EXCL); }
+    catch (error) { if (error.code !== 'EEXIST' && error.code !== 'ENOENT') throw error; }
+    store.write('layout.json', v.layout);
+  }
   return v.layout;
 }
 function loadCharacter() {
@@ -606,7 +613,7 @@ function openPanel(page, tab = null) {
   const y = Math.max(d.y + 8, Math.min(cy - H / 2, d.y + d.height - H - 8));
   const ch = loadCharacter();
   const keep = panel.__pinned && panel.isVisible(); // 钉住时留在用户放的位置
-  if (!keep) panel.setBounds({ x: Math.round(x), y: Math.round(y), width: W, height: Math.round(H) });
+  if (!keep) panel.setBounds({ x: px(x) ?? 0, y: px(y) ?? 0, width: px(W) ?? 400, height: px(H) ?? 400 });
   // 小泡泡串的位置：对准精灵中心，但不超出面板圆角
   const ty = Math.round(Math.max(48, Math.min(H - 48, cy - y)));
   panel.webContents.send('panel:go', { page, tab, side: right ? 'left' : 'right', ty, theme: themeFor(ch), sub: `${(CHARACTERS[ch.id] || {}).name || ''}的小窗` });
@@ -643,7 +650,9 @@ function runAction(id) {
 /* 精灵的位置：显示器信息推给精灵窗口，由它在本地算边界；挪窗口是单向消息（见 sprite.js） */
 const displaysView = () => ({ primary: screen.getPrimaryDisplay().id, all: screen.getAllDisplays().map(d => ({ id: d.id, bounds: d.bounds, workArea: d.workArea })) });
 ipcMain.on('jm:displays', e => { e.returnValue = displaysView(); });
-ipcMain.on('jm:move', (e, x, y) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && !w.isDestroyed() && Number.isFinite(x) && Number.isFinite(y)) w.setPosition(Math.round(x), Math.round(y), false); });
+/* 窗口坐标：Electron 只认 32 位整数，-0（贴左 / 上边时 Math.round(-0.3) 的结果）和超出范围的数都会抛错（1.8.1 在这里崩过）。|0 把 -0 变成 0 */
+function px(v) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(-1e6, Math.min(1e6, n)) | 0 : null; }
+ipcMain.on('jm:move', (e, x, y) => { const w = BrowserWindow.fromWebContents(e.sender), X = px(x), Y = px(y); if (w && !w.isDestroyed() && X !== null && Y !== null) { try { w.setPosition(X, Y, false); } catch {} } });
 app.whenReady().then(() => { const push = () => { if (sprite && !sprite.isDestroyed()) sprite.webContents.send('jm:displays', displaysView()); }; for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, push); });
 ipcMain.on('jm:layout', e => { e.returnValue = resolveLayout(loadLayout()); });
 ipcMain.on('jm:character', e => { e.returnValue = loadCharacter(); });
@@ -660,7 +669,7 @@ ipcMain.on('jm-buddy-float', (e, json) => {
   let m; try { m = JSON.parse(json); } catch { return; }
   if (m.type === 'action') runAction(m.id);
   else if (m.type === 'savePos') { const s = settings(); s.pos = { x: Math.round(m.x), y: Math.round(m.y) }; store.write('settings.json', s); }
-  else if (m.type === 'move' && sprite) sprite.setPosition(Math.round(m.x), Math.round(m.y));
+  else if (m.type === 'move' && sprite && px(m.x) !== null && px(m.y) !== null) sprite.setPosition(px(m.x), px(m.y));
   else if (m.type === 'quit') app.quit();
 });
 ipcMain.handle('panel:state', () => (scanCharacters(), { theme: themeFor(),

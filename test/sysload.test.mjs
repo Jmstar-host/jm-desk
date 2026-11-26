@@ -22,9 +22,9 @@ test('动作快慢：三成以下正常速度，九成以上 3.5 倍，中间平
 test('第一层「占用」气泡：默认有；旧布局迁移时加一次，删掉后不再加回来', () => {
   const v = validateLayout(DEFAULT_LAYOUT); assert.ok(v.ok, v.errors.join()); assert.equal(v.layout.groups.find(g => g.id === 'load').action, 'sys.load');
   const old = { version: 1, groups: [{ id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#3b82f6'], items: ['skill.loop'] }, { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], items: ['app.settings'] }] };
-  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['play', 'load', 'more']); assert.ok(validateLayout(m.layout).ok);
+  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['play', 'elements', 'load', 'more']); assert.ok(validateLayout(m.layout).ok);
   const removed = { ...validateLayout(m.layout).layout, groups: m.layout.groups.filter(g => g.id !== 'load') };
-  const again = migrateLayout(removed); assert.equal(again.changed, false); assert.deepEqual(again.layout.groups.map(g => g.id), ['play', 'more']);
+  const again = migrateLayout(removed); assert.equal(again.changed, false); assert.deepEqual(again.layout.groups.map(g => g.id), ['play', 'elements', 'more']);
 });
 
 test('平滑：一次尖峰只抬一点，持续忙几次后才接近真实值', async () => {

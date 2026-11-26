@@ -220,13 +220,19 @@ function peekEdge() {
   flyTo(a, 'peek', 320, 15, () => { mew.trick('peek'); idle(rand(3500, 6000)); });
 }
 /* 1.8.0：边飞边放。这些技能只放特效，不打断飞行；飞着的时候 burst / sparkle 也不停下来 */
-const AIR = ['psywave', 'orb', 'meteor', 'spark', 'swirl'];
+const AIR = mew.fxSkills;
 const flying = () => !!B.target && Math.hypot(B.vel.x, B.vel.y) > 60;
 function airCast(name) { mew.skill(name); }
 /* 连招：满屏快飞，路上隔一会放一个技能，最后翻个跟头 */
 function combo() {
   const d = curDisplay(); if (!d || REDUCED) return airCast('psywave');
-  const seq = [...AIR].sort(() => Math.random() - 0.5); let i = 0;
+  const seq = [...AIR];
+  for (let j = seq.length - 1; j > 0; j--) {
+    const k = Math.floor(Math.random() * (j + 1));
+    [seq[j], seq[k]] = [seq[k], seq[j]];
+  }
+  seq.length = Math.min(5, seq.length);
+  let i = 0;
   const hop = () => { if (i >= seq.length) { mew.trick('loop'); return idle(rand(1500, 3000)); } const n = seq[i++]; mew.trick('dash'); flyTo(randomAnchor(d), 'zoom', rand(900, 1300), rand(30, 70), hop); setTimeout(() => airCast(n), 180); };
   B.lastUser = performance.now(); hop();
 }
@@ -416,7 +422,9 @@ const SKILLS = {
   'skill.teleport': () => castSkill('teleport'), 'skill.burst': () => castSkill('burst'), 'skill.orbit': () => castSkill('orbit'),
   'skill.zoom': () => castSkill('zoom'), 'skill.sparkle': () => castSkill('sparkle'),
   'skill.loop': () => { mew.trick('loop'); brainStay(4000); },
-  'skill.combo': () => closeMenu(() => castSkill('combo'), true), // 气泡开着时精灵不飞，先收起 'skill.psywave': () => castSkill('psywave'), 'skill.orb': () => castSkill('orb'), 'skill.meteor': () => castSkill('meteor'), 'skill.spark': () => castSkill('spark'), 'skill.swirl': () => castSkill('swirl'), 'skill.wave': () => { mew.trick('wave'); brainStay(4000); },
+  'skill.combo': () => closeMenu(() => castSkill('combo'), true),
+  'skill.wave': () => { mew.trick('wave'); brainStay(4000); },
+  ...Object.fromEntries(AIR.map(name => ['skill.' + name, () => castSkill(name)])),
   'toggle.roam': () => setRoam(!roamOn), 'place.corner': () => resetCorner(),
 };
 let menuLayout = ipcRenderer.sendSync('jm:layout');

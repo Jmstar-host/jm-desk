@@ -4,6 +4,7 @@
  */
 import * as THREE from './vendor/three.module.js';
 import { buildLumi } from './lumi.mjs';
+import { createElementFx, elementSkillNames } from './element-fx.mjs';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { DRACOLoader } from './vendor/DRACOLoader.js';
 
@@ -93,6 +94,7 @@ export function createSprite(host, opts = {}) {
   const W = () => host.clientWidth || 210, H = () => host.clientHeight || 200;
   renderer.setSize(W(), H());
   host.appendChild(renderer.domElement);
+  const elementFx = createElementFx(host, REDUCED);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, W() / H(), 0.1, 50);
@@ -344,6 +346,10 @@ export function createSprite(host, opts = {}) {
     glow.intensity = (1.1 + c * 2.2 + st.burst * 3) * (1 - zz * 0.5);
 
     renderer.render(scene, camera);
+    if (elementFx.active) {
+      tmp.set(root.position.x, root.position.y + 0.95, 0).project(camera);
+      elementFx.draw(ms, (tmp.x + 1) * W() / 2, (1 - tmp.y) * H() / 2);
+    }
     stat.frames++;
   }
   requestAnimationFrame(frame);
@@ -352,6 +358,7 @@ export function createSprite(host, opts = {}) {
   const dirNow = () => (Math.abs(st.ext.x) > 30 ? Math.sign(st.ext.x) : Math.sign(st.face) || 1);
   const later = (ms, fn) => setTimeout(fn, ms); // 特效按真实时间排（粒子也按真实时间走）
   const FXSKILL = {
+    ...Object.fromEntries(elementSkillNames.map(name => [name, () => elementFx.play(name, dirNow())])),
     psywave(cx, cy) { // 念力波：三圈光环向外扩散
       st.burst = 1; startTrick('stretch');
       for (let k = 0; k < 3; k++) later(k * 140, () => { const x = root.position.x, y = root.position.y + 0.95; FX.ring.emit(x, y, 0.2, { life: 0.75, size: 0.5, grow: 4.5, color: fxc(k) }); FX.glow.emit(x, y, 0.2, { life: 0.35, size: 0.9, color: WHITE }); });
@@ -448,6 +455,7 @@ export function createSprite(host, opts = {}) {
     _state: st,
     dispose() {
       stopped = true; ro.disconnect();
+      elementFx.dispose();
       scene.traverse(o => { o.geometry?.dispose(); (Array.isArray(o.material) ? o.material : o.material ? [o.material] : []).forEach(mt => { mt.map?.dispose(); mt.uniforms?.uMap?.value?.dispose?.(); mt.dispose(); }); });
       renderer.dispose(); renderer.forceContextLoss?.(); renderer.domElement.remove(); 
     },

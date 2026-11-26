@@ -2,6 +2,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CATALOG, DEFAULT_LAYOUT, MOVED, migrateLayout, validateLayout } from '../app/main/catalog.mjs';
+import { elementSkillNames } from '../app/renderer/element-fx.mjs';
+
+test('元素技能能从旧布局找到；保留已放好的动作和用户自定义分组', () => {
+  const skillIds = elementSkillNames.map(name => 'skill.' + name);
+  const old = structuredClone(DEFAULT_LAYOUT);
+  old.groups = old.groups.filter(g => g.id !== 'elements');
+  old.seen = ['load', 'combo'];
+  const work = old.groups.find(g => g.id === 'work');
+  work.items.push(skillIds[0]);
+  const { layout } = migrateLayout(old);
+  const group = layout.groups.find(g => g.id === 'elements');
+  assert.deepEqual(group.items, skillIds.slice(1));
+  assert.ok(skillIds.every(id => CATALOG[id].kind === 'skill'));
+  assert.equal(validateLayout(layout).ok, true);
+  assert.deepEqual(layout.groups.filter(g => g.id !== 'elements'), old.groups);
+  layout.groups = layout.groups.filter(g => g.id !== 'elements');
+  assert.equal(migrateLayout(layout).changed, false);
+  old.groups.push({ ...group, id: 'custom', items: ['skill.orb'] });
+  assert.deepEqual(migrateLayout(old).layout.groups, old.groups);
+});
 
 test('旧布局迁移：待办 / 需求池 / 汇总并进工作台，问知识并进助手，收集并进线索，平台 / 接入 / 形象并进设置', () => {
   const old = { version: 1, groups: [

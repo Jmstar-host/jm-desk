@@ -56,7 +56,7 @@ function setIgnore(v) { if (v === ignoring) return; ignoring = v; try { me.setIg
 function armIdle() { clearTimeout(idleT); idleT = setTimeout(() => enqueue(() => closeMenu()), 15000); }
 function frameFor(m, wa) {
   const L = Math.max(m.cx - H, wa.x), T = Math.max(m.cy - H, wa.y), R = Math.min(m.cx + H, wa.x + wa.width), Bt = Math.min(m.cy + H, wa.y + wa.height);
-  return { x: Math.round(L), y: Math.round(T), width: Math.round(R - L), height: Math.round(Bt - T) };
+  return { x: Math.round(L) | 0, y: Math.round(T) | 0, width: Math.round(R - L) | 0, height: Math.round(Bt - T) | 0 }; // |0：-0 会让 setBounds 抛错
 }
 async function placeFrame(m, wa) {
   const f = frameFor(m, wa);
