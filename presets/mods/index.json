@@ -1,0 +1,17 @@
+{
+  "name": "MOD 库",
+  "mods": [
+    { "id": "lumi-mint", "name": "薄荷星灵", "kind": "lumi", "author": "JM Desk", "license": "原创 · 随意使用", "note": "薄荷绿配小叶子触角",
+      "params": { "body": "#a7f3d0", "body2": "#99e9f2", "belly": "#f6fff9", "cheek": "#ffb3c7", "eye": "#1f3d36", "star": "#fff3a3", "antenna": "leaf", "tail": true, "size": 1 } },
+    { "id": "lumi-peach", "name": "蜜桃星灵", "kind": "lumi", "author": "JM Desk", "license": "原创 · 随意使用", "note": "暖暖的蜜桃色",
+      "params": { "body": "#ffc9b5", "body2": "#ffb3d1", "belly": "#fff7f0", "cheek": "#ff8fa3", "eye": "#4a2a2a", "star": "#ffe27a", "antenna": "star", "tail": true, "size": 1 } },
+    { "id": "lumi-sakura", "name": "樱花星灵", "kind": "lumi", "author": "JM Desk", "license": "原创 · 随意使用", "note": "粉色系，和默认的粉色泡泡最搭",
+      "params": { "body": "#ffc2dc", "body2": "#f5b8ff", "belly": "#fff5fa", "cheek": "#ff7eb6", "eye": "#3d1f33", "star": "#fff0b3", "antenna": "star", "tail": true, "size": 1 } },
+    { "id": "lumi-lemon", "name": "奶油柠檬星灵", "kind": "lumi", "author": "JM Desk", "license": "原创 · 随意使用", "note": "奶油黄，个头大一点",
+      "params": { "body": "#ffe99a", "body2": "#ffd08a", "belly": "#fffdf2", "cheek": "#ffab91", "eye": "#3d321f", "star": "#ffffff", "antenna": "leaf", "tail": true, "size": 1.15 } },
+    { "id": "lumi-night", "name": "夜空星灵", "kind": "lumi", "author": "JM Desk", "license": "原创 · 随意使用", "note": "深蓝紫，星星更亮",
+      "params": { "body": "#6d6bd6", "body2": "#3b82c4", "belly": "#e9e8ff", "cheek": "#ff9ccf", "eye": "#14122b", "star": "#ffe27a", "antenna": "star", "tail": true, "size": 1 } },
+    { "id": "lumi-cloud", "name": "云朵星灵", "kind": "lumi", "author": "JM Desk", "license": "原创 · 随意使用", "note": "白白的一小团，没有触角和尾巴",
+      "params": { "body": "#e8ecf7", "body2": "#cfe3ff", "belly": "#ffffff", "cheek": "#ffc2d6", "eye": "#2a2f3d", "star": "#ffd86b", "antenna": "none", "tail": false, "size": 0.9 } }
+  ]
+}

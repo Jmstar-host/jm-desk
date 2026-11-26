@@ -56,7 +56,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `kind: "gltf"`：`entry` 是 `.glb`，可以写 `boneMap`（模型骨骼名 → 统一骨骼名）、`size`、`theme: ["#a1", "#a2"]`（面板主色）。
   - 统一骨骼名：`Spine1 Head LEar REar LArm RArm LForeArm RForeArm Tail1..Tail7`，缺的骨骼会跳过。
   - 动作幅度：导入的 glTF 模型默认收敛（整条尾巴的摆幅按节数平分、睡着时尾巴不往外卷、不抖耳朵），避免长尾巴来回甩看着像抽动；manifest 可写 `motion: { tail, speed, ear, curl }` 调整（`engine.mjs` 的 `MOTION`）。
-- **MOD 库**（1.8.4，团队共享的形象，「设置 › 形象」最上面）：一个 https 地址上的 `index.json`（`settings.mods.url`，或企业预置文件顶层的 `mods`；开源版为空就不显示）。条目两种：`kind: "lumi"` 只带内置星灵的一套参数（配色、触角等，走 `sanitizeParams`）；`kind: "gltf"` 是 `.glb` 模型，`url` 可以写相对路径，但必须和清单同源。清单缓存 5 分钟，只当数据。用中转分发时放在 `DL_DIR/mods/`（`index.json` + `*.glb`，文件名小写），地址是 `<中转地址>/dl/<下载口令>/mods/index.json`（`relay/server.mjs`，只读、不进更深的目录）。**库是发给同事的，和随包形象一样只放原创或许可允许分发的（CC0 等）；现有动漫、游戏角色的模型不要放进去**，那类模型各人只留在自己的 `DATA`。
+- **MOD 库**（1.8.4，团队共享的形象，「设置 › 形象」最上面）：一个 https 地址上的 `index.json`（`settings.mods.url`，或企业预置文件顶层的 `mods`；开源版为空就不显示）。条目两种：`kind: "lumi"` 只带内置星灵的一套参数（配色、触角等，走 `sanitizeParams`）；`kind: "gltf"` 是 `.glb` 模型，`url` 可以写相对路径，但必须和清单同源。清单缓存 5 分钟，只当数据。用中转分发时放在 `DL_DIR/mods/`（`index.json` + `*.glb`，文件名小写），地址是 `<中转地址>/dl/<下载口令>/mods/index.json`（`relay/server.mjs`，只读、不进更深的目录）。第一批内容（六套星灵配色）在 `presets/mods/index.json`。**库是发给同事的，和随包形象一样只放原创或许可允许分发的（CC0 等）；现有动漫、游戏角色的模型不要放进去**，那类模型各人只留在自己的 `DATA`。
 - **形象库**（`app/main/gallery.mjs`，「设置 › 形象」）：列表来自 `app/builtin/characters.json`（随包分发，只能放原创形象，目前为空）和 `DATA/character-sources.json`（用户自己维护）。下载只接受 https，下载后校验 glTF 2.0，上限 60 MB。**第三方角色的链接只能放在用户的 `DATA` 里**。
 
 ## 3. 三个维度和工作体系
