@@ -328,22 +328,28 @@ function intakeDetail(w) {
   else call('work:mp2-targets').then(t => fill(t.products, (t.scoped ? '只列出你这个关联负责范围内的平台产品。' : '') + (s?.action === 'create' && s.product ? (t.products.some(p => p.mp2Id === s.productMp2Id) ? `AI 建议录到「${s.product}」。` : `AI 建议的「${s.product}」不在你的负责范围里，请另选。`) : ''))).catch(fail);
   const dup = (r, bind) => m.replaceChildren(h('div', { class: 'err' }, r.message), ...r.candidates.map(c => h('div', { class: 'hit' }, h('span', {}, `${c.code || '#' + c.id} · ${c.title || c.name}`), h('button', { onclick: () => bind(c) }, '就是它，对应'))));
   const bindTo = async c => { try { await call('work:bind', w.id, isReq ? c : { id: c.id }); await call('work:mp2-refresh').catch(() => null); jump = true; await done(w.id, `已对应到平台上的 ${c.code || '#' + c.id}。`); } catch (e) { fail(e); } };
-  const submit = h('button', { class: 'pri', disabled: !P.linked, onclick: async () => {
+  /* 录入。thenFlow：录完直接打开「协同录入」窗口接着走澄清、需求计划……（1.10.5：待录入里也有协同录入的入口） */
+  const FLOW = '录入并协同录入';
+  const enter = async thenFlow => {
     const title = fld.title.value.trim(), productId = Number(fld.product.value);
     if (!title) return fail(new Error(isReq ? '需求标题不能空' : '项目名称不能空'));
     if (isReq && !fld.summary.value.trim()) return fail(new Error('需求描述是平台的必填项'));
     if (!productId) return fail(new Error('先选平台产品'));
-    submit.disabled = true; submit.textContent = '录入中…';
+    submit.disabled = flowBtn.disabled = true; (thenFlow ? flowBtn : submit).textContent = '录入中…';
+    const reset = () => { submit.disabled = flowBtn.disabled = false; submit.textContent = `录入到${P.name}`; flowBtn.textContent = FLOW; };
     try {
       await call('work:edit', w.id, isReq ? { title, summary: fld.summary.value, priority: fld.priority.value, type: fld.type.value, deadline: fld.deadline.value || null } : { title, summary: fld.summary.value, deadline: fld.deadline.value || null }, { push: false });
       const filled = { title: true, summary: !!fld.summary.value.trim(), priority: isReq, type: isReq, deadline: !!fld.deadline.value, product: true };
       await call('work:evidence', w.id, Object.fromEntries(Object.entries(filled).filter(([k, on]) => on).map(([k]) => [k, prov[k] || { by: 'me' }]))); // 录入前把字段依据存下，平台描述里会带上摘录
       const r = isReq ? await call('work:upload', w.id, { productId }) : await call('work:mp2-create-project', w.id, { productId });
-      if (r.duplicate) { submit.disabled = false; submit.textContent = `录入到${P.name}`; return dup(r, bindTo); }
+      if (r.duplicate) { reset(); return dup(r, bindTo); }
       await call('work:mp2-refresh').catch(() => null); jump = true;
-      await done(w.id, `已录入${P.name}：${r.code || ''}`);
-    } catch (e) { submit.disabled = false; submit.textContent = `录入到${P.name}`; fail(e); }
-  } }, `录入到${P.name}`);
+      await done(w.id, `已录入${P.name}：${r.code || ''}${thenFlow ? '。协同录入的窗口已经打开，从「澄清」接着走。' : '。右上角「协同录入」可以接着走澄清、需求计划、项目、功能、周总结。'}`);
+      if (thenFlow) await call('flow:open', w.id).catch(fail);
+    } catch (e) { reset(); fail(e); }
+  };
+  const submit = h('button', { class: 'pri', disabled: !P.linked, onclick: () => enter(false) }, `录入到${P.name}`);
+  const flowBtn = h('button', { disabled: !P.linked, title: '先把这条录入平台（原始需求），再打开协同录入窗口，和 AI 一起接着走澄清、需求计划、项目、功能、目标、周总结', onclick: () => enter(true) }, FLOW);
   /* 平台上已经有了：搜索（需求）或从所选平台产品的项目里选（项目） */
   const find = h('div');
   const openFind = () => {
@@ -359,7 +365,8 @@ function intakeDetail(w) {
     }
   };
   return { crumb: `待录入 › ${P.name}`,
-    tools: [h('button', { class: 'sm ghost', title: '不录入了，从待录入里拿掉', onclick: async () => { try { await call('work:edit', w.id, { status: 'dropped' }, { push: false }); current = null; await load(); $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, '已标为不做了')); } catch (e) { fail(e); } } }, '不做了')],
+    tools: [isReq ? h('button', { class: 'sm pri', disabled: !P.linked, title: '协同录入从平台上的原始需求开始：点了会先按下面的表单把这条录入平台，再打开协同录入窗口接着走全流程', onclick: e => { const b = e.currentTarget; submit.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '确认：先录入平台，再协同录入'; setTimeout(() => { b.dataset.armed = ''; b.textContent = '协同录入'; }, 6000); return; } b.dataset.armed = ''; b.textContent = '协同录入'; enter(true); } }, '协同录入') : null,
+      h('button', { class: 'sm ghost', title: '不录入了，从待录入里拿掉', onclick: async () => { try { await call('work:edit', w.id, { status: 'dropped' }, { push: false }); current = null; await load(); $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, '已标为不做了')); } catch (e) { fail(e); } } }, '不做了')],
     body: [
     h('h2', {}, w.title),
     w.ready ? h('div', { class: 'box hot' }, h('h4', {}, `${WHO[w.ready.by] || 'AI'}准备把它${w.ready.action === 'create' ? '在平台新建' : '录入平台'}`),
@@ -372,7 +379,7 @@ function intakeDetail(w) {
     card([`录入到${P.name}`, h('span', { class: 'grow' }), fillBtn], h('div', { class: 'f' }, ...F('录成', kind), ...F('平台产品', h('div', { class: 'stack' }, fld.product, hint, chip('product')), true),
       ...F(isReq ? '需求标题' : '项目名称', h('div', { class: 'stack' }, fld.title, chip('title')), true), ...F(isReq ? '需求描述' : '项目说明', h('div', { class: 'stack' }, fld.summary, chip('summary')), isReq),
       ...(isReq ? [...F('优先级', h('div', { class: 'stack' }, fld.priority, chip('priority'))), ...F('需求类型', h('div', { class: 'stack' }, fld.type, chip('type'))), ...F('预期完成时间', h('div', { class: 'stack' }, fld.deadline, chip('deadline')))] : F('计划结束', h('div', { class: 'stack' }, fld.deadline, chip('deadline'))))),
-      h('div', { class: 'act in-f' }, submit, h('button', { onclick: openFind }, '平台上已有，去对应')), m),
+      h('div', { class: 'act in-f' }, submit, isReq ? flowBtn : null, h('button', { onclick: openFind }, '平台上已有，去对应')), m),
     find] };
 }
 
