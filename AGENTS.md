@@ -97,6 +97,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **好友以 Star 为准**（1.6.0，`app/main/star.mjs`，主进程 `starSync` / `star:*`）：Star 是团队自己部署的私有聊天（和 DSH NEXT 里用的是同一套）。
   - 地址：`settings.star.base`，或企业预置文件顶层的 `star`（https，或局域网 / Tailnet 的 http）。开源版为空。
   - 主窗口「聊天」页内嵌 Star 网页，独立会话分区 `persist:star`（不给网页本机权限，跨域链接用系统浏览器打开）。用户在里面登录一次，主进程沿用这次登录的 Cookie（`star_sid`）调 Star 的接口（带 `x-star: 1` 头），不另存密码。
+  - 配色（1.8.3）：Star 网页自带蓝色和深色侧栏，页面每次加载完由主进程 `insertCSS` 一段只改颜色的样式（`star.mjs` 的 `themeCss`，色值取自 `tokens.css`；选择器前加 `html` 才压得过 Star 自己的规则），顺带修 Star 会话列表被拉长的未读角标。`settings.star.theme = false` 关掉。
   - 访问 Star 默认直连、不走系统代理（本机代理常常不转发内部域名，会直接断开）；直连失败自动改用系统代理再试，结果记在 `settings.star.proxy`。
   - 每分钟同步一次（`starSync`）：「聊天」页签的未读角标；好友单聊里的配对消息（`jmdesk-pair:v1:`，带本机串门用的公钥和信箱号）——收到就 `peerHub.adoptStar` 收下对方，并自动回一条自己的；勾选的会话按天聚合成 `star_im` 线索（只在本机，同一天的新消息接在后面，跳过配对消息和系统消息），送平台时按「聊天」类型。
   - 「串门」页的好友列表来自 Star：已连上 JM Desk 的好友可以设等级、来访方式、开放的文件夹；没连上的点「连接 JM Desk」，在 Star 单聊里发一条配对消息。串门带回的内容照旧走 JM Desk 的端到端加密中转，Star 服务器看不到。经 Star 新连上的好友默认普通好友。
@@ -124,7 +125,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `mcp-stdio`：本机命令启动的 MCP。
   - `mcp-http`：网址形式的 MCP（Streamable HTTP，兼容只返回 JSON 的无状态实现），可以写 `urls` 作为备用地址。
   - `api`：HTTP API。有 OpenAPI（JSON）时每个接口生成一个工具；没有时只提供一个「通用请求」工具，而且只能访问 `baseUrl` 下的路径。
-- **内置工具**「JM Desk 工作区」（`kind: builtin`，`main.mjs` 的 `localTools`）：查待办、需求池、线索，读线索原文，新建和完成待办；工作台：`list_work`、`update_work`，以及对齐需求管理平台的 `sync_mp2_tree`、`list_mp2_projects`、`search_mp2_requirements`、`refresh_mp2_status`、`bind_work_mp2`、`unbind_work_mp2`。工作台按钮、助手、本机 AI 用的是同一组动作。
+- **内置工具**「JM Desk 工作区」（`kind: builtin`，`main.mjs` 的 `localTools`）：查待办、需求池、线索，读线索原文，新建和完成待办；串门（1.8.3）：`list_friends`（Star 好友、是否连上、对方开放的范围）、`connect_friend`（在 Star 单聊里发连接消息，要确认）、`visit_friend`（带范围去好友桌面找，等结果回来，要确认）——加 Star 好友本身仍要人在「聊天」页操作；工作台：`list_work`、`update_work`，以及对齐需求管理平台的 `sync_mp2_tree`、`list_mp2_projects`、`search_mp2_requirements`、`refresh_mp2_status`、`bind_work_mp2`、`unbind_work_mp2`。工作台按钮、助手、本机 AI 用的是同一组动作。
 - **本机 AI 控制 JM Desk**（`app/main/localmcp.mjs`，「接入」里的「让本机 AI 控制 JM Desk」，默认关闭；不一定要用 JM Desk 自己的助手对话，桌面上任何 agent 都可以经这里提交改动，见 §3「AI 写入先提交、人再推送」）：JM Desk 在 127.0.0.1 提供 MCP 端点（`POST /mcp`，Streamable HTTP 的无状态 JSON 实现），工具就是上面的内置工具。令牌和完整客户端配置在 `DATA/local-mcp.json`（0600）；拒绝非本机 Host 和非本机 Origin（防网页跨站和 DNS 重绑定）；写工具每次弹确认卡（标了 `staged` 的只提交到 JM Desk，不弹），history 里记为 `local-ai`。端口尽量沿用上次的，「换令牌」后本机 AI 要重新复制配置。
 - **已关联的需求管理平台**会自动成为内置接入：设备授权拿到的凭据本身就是 `mcpServers.mp2` 配置。
 - **密钥**：环境变量、请求头、Token 都加密存放在 `secrets.json` 的 `integ` 下，`settings.json` 里只有名字。
@@ -232,6 +233,7 @@ test/                      node --test，全部用假服务和虚构样例
 - 精灵窗口只移动、不改大小；新的浮层放进提示层（hud）。
 - **精灵怎么动**（1.7.0，参考 RunCat，`settings.sprite`，设置 › 气泡）：
   - `hoverMenu`（默认开，1.8.1 改了含义）：**点精灵才打开气泡**（鼠标放在精灵上不打开）；气泡打开后，鼠标在分组气泡上停 0.22 秒就自动展开它的下一级，换到别的分组就切过去（只展开、不收回；`hud.js` 的 `tryExpand`，主进程不参与，`sprite.js` 收到 `expand` 后 `switchLevel`）。刚重新排过气泡、鼠标还没动过时不展开，免得气泡换位后落在鼠标下面来回切。
+  - `unreadChips`（1.8.3，默认开）：**精灵身边的小气泡**，贴着泡泡左上沿排开，每个来源一个：`work` 待办（原来右上角的角标，已去掉）、`mail` 未读邮件、`star` 内置聊天的未读消息 + 好友申请；数字为 0 不显示，点一下去看。加来源（如飞书未读）：主进程 `pushUnread('<id>', n, 说明)`，`sprite.js` 的 `UNREAD` 里登记图标、颜色、点击动作（`feishu` 已留位置，还没有数据来源）。
   - `motion`：`cpu`（默认）/ `cpu+mem`（两者平均）/ `off`。`app/main/sysload.mjs` 每 2 秒采样（CPU 扣掉 JM Desk 自己的占用、做平滑；macOS 内存按 vm_stat 的活动 + 联动 + 压缩页），`tempoFor` 映射成 1–3.5 倍速：三成以下正常，九成以上最快。`engine.mjs` 的 `tempo()` 让动画时间按倍速推进（翅膀、尾巴、小把戏都更快，忙时不打瞌睡）；`sprite.js` 自由飞时速度乘倍速、歇得更短，倍速 2 以上常常满屏快飞。系统设置里开了「减少动态效果」时不加速。
   - `flyCast`（1.8.0，默认开）：**边飞边放技能**。念力波 / 能量球 / 流星 / 电光 / 旋风（`engine.mjs` 的 `FXSKILL`）只放特效和小把戏，不打断飞行；飞着时爆发、爱心也不停下来（`sprite.js` 的 `castSkill` / `airCast`）。飞得快时隔 2.5–6 秒（除以倍速）有几率顺手放一个，电脑越忙放得越勤。「连招」满屏快飞、路上依次放五个技能。特效按真实时间播放（不跟倍速），正常混合、饱和色，浅色桌面上也看得清；颜色取形象包 manifest 的 `theme`。
   - **技能特效素材**：默认用代码画的贴图（光斑、光环、闪电、星星、旋风、拖尾），不随包带第三方素材。把 CC0 素材包（如 Kenney Particle Pack）的 PNG 放进 `DATA/extensions/fx/`，按文件名对上就替换：`flare_ / light_` → 光斑，`circle_0` → 光环，`spark_` → 闪电，`star_` → 星星，`twirl_` → 旋风，`trace_` → 拖尾（`main.mjs` 的 `FX_NAMES` / `fxFiles`）。用户放的素材只留在 `DATA`。

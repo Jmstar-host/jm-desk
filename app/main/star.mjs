@@ -29,6 +29,8 @@ export function createStarClient({ base, cookie, fetchImpl = fetch }) {
     base: b, api,
     me: async () => (await api('me')).user,
     friends: async () => (await api('friends')).friends || [],
+    /** 别人发来、还没处理的好友申请数（接口不在或格式不认识时算 0） */
+    pendingRequests: async () => { try { const r = await api('friend-requests'), inc = r.incoming || r.requests?.incoming || []; return inc.filter(x => !x.status || x.status === 'pending').length; } catch (e) { if (e.code === 'login') throw e; return 0; } },
     conversations: async () => (await api('conversations')).conversations || [],
     messages: async (convId, { after, limit = 100 } = {}) => (await api(`conversations/${Number(convId)}/messages?limit=${limit}${after ? '&after=' + Number(after) : ''}`)).messages || [],
     direct: async uid => (await api('conversations/direct', { method: 'POST', body: { user_id: Number(uid) } })).conversation,
@@ -83,4 +85,40 @@ export function mergeContent(old, add) {
   const have = new Set(String(old || '').split('\n'));
   const extra = String(add || '').split('\n').filter(l => l && !have.has(l));
   return extra.length ? (old ? old + '\n' : '') + extra.join('\n') : old;
+}
+
+/* ---------- 聊天页的配色（1.8.3）：Star 网页有自己的蓝色 + 深色侧栏，嵌进主窗口后和 JM Desk 的粉 / 蓝 / 白不搭。
+ * 加载完后往页面里插一段样式，只覆盖颜色（变量和几处写死的色值），不动布局；色值从 tokens.css 里取，色板仍然只有一份。
+ * 顺带修 Star 会话列表的未读角标：它同时有 left 和 right，被拉成一长条 ---------- */
+export function paletteOf(tokensCss) {
+  const pick = k => (String(tokensCss || '').match(new RegExp(`--${k}:(#[0-9a-fA-F]{6})`)) || [])[1];
+  const d = { pink: '#ec4899', 'pink-d': '#db2777', 'pink-l': '#fce7f3', 'pink-ll': '#fdf2f8', blue: '#3b82f6', 'blue-d': '#2563eb', 'blue-l': '#dbeafe', black: '#17141f', sub: '#5f5a6b', faint: '#9a95a5', red: '#e11d48', green: '#16a34a' };
+  return Object.fromEntries(Object.entries(d).map(([k, v]) => [k, pick(k) || v]));
+}
+export function themeCss(tokensCss) {
+  const c = paletteOf(tokensCss), grad = `linear-gradient(135deg, ${c.pink}, ${c.blue})`, glow = `color-mix(in srgb, ${c.pink} 24%, transparent)`, line = `color-mix(in srgb, ${c.black} 9%, transparent)`;
+  return `
+:root { --brand: ${c['blue-d']}; --brand-2: ${c.pink}; --brand-soft: ${c['pink-ll']};
+  --bg: #f8f6fb; --panel: #ffffff; --panel-2: #faf8fc; --rail: #f6f3fa; --rail-fg: ${c.sub};
+  --line: ${line}; --fg: ${c.black}; --fg-2: ${c.sub}; --fg-3: ${c.faint};
+  --bubble-me: ${c.pink}; --danger: ${c.red}; --ok: ${c.green}; --shadow: 0 8px 30px color-mix(in srgb, ${c.black} 10%, transparent); }
+.rail { border-right: 1px solid ${line}; }
+.rail-btn:hover { background: rgba(255,255,255,.8); color: ${c.black}; }
+.rail-btn.on { background: #fff; color: ${c.pink}; box-shadow: inset 0 0 0 1px rgba(255,255,255,.95), 0 3px 12px ${glow}; }
+.btn.primary, .btn.primary:hover { background: ${grad}; border-color: transparent; color: #fff; box-shadow: 0 3px 10px ${glow}; }
+.btn:hover { background: ${c['pink-ll']}; }
+.msg.me .bubble { background: ${grad}; color: #fff; box-shadow: 0 3px 10px ${glow}; }
+.item.on { background: #fff; box-shadow: inset 0 0 0 1.5px ${c.pink}, 0 3px 12px ${glow}; }
+.item:hover { background: ${c['pink-ll']}; }
+.badge { background: ${grad}; }
+.item .unread { right: auto; }
+.avatar.group { background: linear-gradient(135deg, ${c.faint}, ${c.sub}); }
+.input:focus, .field input:focus, .field select:focus, .field textarea:focus { border-color: ${c.pink}; box-shadow: 0 0 0 3px color-mix(in srgb, ${c.pink} 15%, transparent); }
+.auth { background: radial-gradient(1200px 600px at 20% 0%, ${c['pink-l']} 0%, transparent 60%), radial-gradient(900px 500px at 100% 100%, ${c['blue-l']} 0%, transparent 55%), #f8f6fb; }
+.auth-brand .logo { background: ${grad}; }
+.boot-logo { color: ${c.pink}; }
+.welcome .big { color: ${c['pink-l']}; }
+.sys span { background: color-mix(in srgb, ${c.black} 6%, transparent); }
+.composer.drag::after { background: color-mix(in srgb, ${c.pink} 8%, transparent); }
+`.replace(/^([^\n{}]+)\{/gm, (_m, sel) => sel.split(',').map(x => x.trim() === ':root' ? 'html:root' : 'html ' + x.trim()).join(', ') + ' {'); // 每个选择器前面加 html：和 Star 自己的规则同级时会被它盖住
 }

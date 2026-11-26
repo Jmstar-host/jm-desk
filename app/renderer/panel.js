@@ -126,6 +126,7 @@ function tabLayout(body) {
     act.replaceChildren(h('h3', {}, '精灵怎么动'),
       h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: c.hoverMenu, onchange: e => set({ hoverMenu: e.target.checked }) }), '气泡打开后，鼠标停在分组上自动展开下一级（点精灵才打开气泡）'),
       h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: c.flyCast, onchange: e => set({ flyCast: e.target.checked }) }), '飞的时候顺手放技能（电脑越忙放得越勤）'),
+      h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: c.unreadChips, onchange: e => set({ unreadChips: e.target.checked }) }), '精灵身边显示小气泡：待办、未读邮件、未读聊天，点一下去看'),
       h('div', { class: 'row' }, h('span', { class: 'muted' }, '动作快慢跟着'), h('select', { onchange: e => set({ motion: e.target.value }) },
         ...[['cpu', 'CPU 占用'], ['cpu+mem', 'CPU + 内存占用'], ['off', '不跟（一直正常速度）']].map(([v, n]) => h('option', { value: v, selected: c.motion === v }, n)))),
       h('div', { class: 'muted' }, '电脑越忙，精灵扇翅膀、甩尾巴越快，自由飞时满屏快飞；三成以下是正常速度。第一层的「占用」气泡显示 CPU 和内存。'));

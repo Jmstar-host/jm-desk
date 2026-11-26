@@ -77,3 +77,12 @@ test('经 Star 交换名片后两边自动连上（默认普通好友），目�
     await a.adoptStar({ starId: 2, name: '同事乙', ...cb }); assert.equal(a.state().peers.length, 1, '同一个 Star 好友再收到名片不会重复');
   } finally { a.stop(); b.stop(); srv.close(); }
 });
+
+test('1.8.3 聊天页配色：色值取自 tokens.css，只覆盖颜色；顺带把会话列表被拉长的未读角标改回来', () => {
+  const css = S.themeCss(':root{--pink:#ff0088;--blue:#0088ff;--black:#101010;}');
+  assert.match(css, /--bubble-me: #ff0088/); assert.match(css, /linear-gradient\(135deg, #ff0088, #0088ff\)/); assert.match(css, /--fg: #101010/);
+  assert.match(css, /\.item \.unread \{ right: auto; \}/, 'Star 的未读角标同时有 left 和 right，会被拉成一长条');
+  assert.ok(!/#1f6feb|#0f172a/.test(css), '不留 Star 原来的蓝色和深色侧栏');
+  assert.ok(!/(width|height|padding|margin|display|font-size)\s*:/.test(css.replace(/\.rail \{[^}]+\}/, '')), '不动布局');
+  assert.equal(S.paletteOf('').pink, '#ec4899', '读不到 tokens 时用默认色板');
+});

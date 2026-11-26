@@ -86,10 +86,36 @@ function placeBadge() {
   for (const [px, py] of spots) { x = px - bw / 2; y = py - bh / 2; if (x >= minX && x <= maxX && y >= minY && y <= maxY) break; }
   place(b, clamp(x, minX, Math.max(minX, maxX)), clamp(y, minY, Math.max(minY, maxY)));
 }
+/* ---------- 未读气泡（1.8.3）：邮件、内置聊天各一个小气泡，贴着泡泡左上沿排开；数字是 0 就不显示。
+ * 加来源：这里登记图标、颜色和点击动作，主进程 pushUnread('<id>', n, 说明) 推数字（飞书已经留好位置） ---------- */
+const UNREAD = {
+  work: { c: 'var(--black)', icon: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/>', act: () => send('action', { id: 'app.work' }) }, // 待办（1.8.3 之前是右上角的角标）
+  mail: { c: 'var(--blue)', icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 7.5 8.5 6 8.5-6"/>', act: () => send('action', { id: 'mail.open' }) },
+  star: { c: 'var(--pink)', icon: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>', act: () => ipcRenderer.invoke('star:open') },
+  feishu: { c: 'var(--violet)', icon: '<path d="M4 6h16v10H9l-5 4z"/>', act: () => send('action', { id: 'app.clues' }) },
+};
+let unreadItems = {}, unreadOn = true;
+ipcRenderer.invoke('sprite:unreads').then(r => { if (r) { unreadItems = r.items || {}; unreadOn = r.on !== false; drawChips(); } }).catch(() => {});
+function drawChips() {
+  const box = $('chips'), list = unreadOn ? Object.keys(UNREAD).filter(k => unreadItems[k] && unreadItems[k].n > 0).map(k => [k, unreadItems[k]]) : []; // 顺序固定：待办、邮件、聊天、飞书
+  box.replaceChildren(...list.map(([k, v], i) => {
+    const el = document.createElement('div'); el.className = 'chip'; el.dataset.src = k; el.title = v.tip || ''; el.style.setProperty('--c', UNREAD[k].c); el.style.setProperty('--d', (i * 0.5) + 's');
+    el.innerHTML = `<svg viewBox="0 0 24 24">${UNREAD[k].icon}</svg><b></b>`; el.querySelector('b').textContent = v.n > 99 ? '99+' : String(v.n);
+    el.addEventListener('click', e => { e.stopPropagation(); UNREAD[k].act(); });
+    return el;
+  }));
+  placeChips();
+}
+function placeChips() {
+  const els = [...$('chips').children]; if (!els.length) return;
+  const hc = mew.hitCircle(true), cx = stage0.x + hc.x, cy = stage0.y + hc.y, R = hc.r * 0.96;
+  // 从左上（225°）往左下排，每个隔 34°；角标在右上，不会撞
+  els.forEach((el, i) => { const a = (-135 - i * 31) * Math.PI / 180; place(el, clamp(cx + Math.cos(a) * R, 15, window.innerWidth - 15), clamp(cy + Math.sin(a) * R, 15, window.innerHeight - 15)); });
+}
 function layout() { try { layoutInner(); } catch (e) { window.__floatErr = String(e.stack || e); } }
 function layoutInner() {
   setBounds(anchor.x, anchor.y, MEW, MEW);
-  win0 = { x: Math.round(anchor.x), y: Math.round(anchor.y) }; stage0 = { x: 0, y: 0 }; placeBadge();
+  win0 = { x: Math.round(anchor.x), y: Math.round(anchor.y) }; stage0 = { x: 0, y: 0 }; placeBadge(); placeChips();
 }
 /* 说话气泡画在以精灵为中心的提示层里（float/menu.html），精灵窗口不变 */
 function hudGeo() {
@@ -116,7 +142,7 @@ document.addEventListener('mousemove', e => {
   mew.pointer(e.clientX, e.clientY); B.lastUser = performance.now();
   if (drag) return;
   const om = overMew(e);
-  setIgnore(!om);
+  setIgnore(!om && !(e.target.closest && e.target.closest('.chip'))); // 未读气泡也要接鼠标
   if (om !== hovering) {
     hovering = om; mew.hover(om); clearTimeout(hoverT);
     // 1.8.1：鼠标放在精灵上不再打开气泡，点击才打开（悬停展开改在气泡层：停在分组气泡上自动展开下一级）
@@ -168,7 +194,7 @@ ipcRenderer.on('jm', (_e, json) => {
   if (m.type === 'mail') { mew.trick('loop'); say(m.title, m.sub, { ms: 15000, action: m.action }); }
   else if (m.type === 'ticker') { if (drag) return; if (menuOn) closeMenu(null, true); bubbleOn = true; bubbleAction = m.action; mew.trick('wave'); sendOv({ type: 'ticker', title: m.title, items: m.items || [], tail: m.tail, action: m.action, ...hudGeo() }); }
   else if (m.type === 'say') { mew.trick(m.trick || 'wave'); say(m.title, m.sub, { ms: m.ms ?? 9000, action: m.action }); }
-  else if (m.type === 'badge') { const b = $('badge'); b.textContent = m.n > 999 ? '999+' : String(m.n); b.style.display = m.n ? 'block' : 'none'; placeBadge(); }
+  else if (m.type === 'badge') { $('badge').style.display = 'none'; } // 1.8.3：右上角的待办角标并进左边的小气泡（work），主进程用 pushUnread 推
   else if (m.type === 'cast') mew.cast(!!m.on);
   else if (m.type === 'trip') { if (m.phase === 'leave') tripLeave(); else tripReturn(!!m.carry); }
   else if (m.type === 'corner') resetCorner(); // 托盘「回到右下角」：精灵跑到看不见的地方时用
@@ -176,6 +202,7 @@ ipcRenderer.on('jm', (_e, json) => {
   else if (m.type === 'shown') { anchor = clampAnchor({ x: window.screenX, y: window.screenY }); layout(); brainReset(); }
   else if (m.type === 'cfg') { cfgMode = m.mode || cfgMode; }
   else if (m.type === 'counts') { counts.unread = m.unread || 0; counts.tasks = m.tasks || 0; }
+  else if (m.type === 'unreads') { unreadItems = m.items || {}; unreadOn = m.on !== false; drawChips(); }
   else if (m.type === 'spriteCfg') { CFG = { hoverMenu: m.hoverMenu, flyCast: m.flyCast, motion: m.motion }; }
   else if (m.type === 'load') {
     LOAD = { cpu: m.cpu, mem: m.mem, tempo: m.tempo }; BOOST = REDUCED ? 1 : Math.max(1, m.tempo || 1); mew.tempo && mew.tempo(BOOST);
