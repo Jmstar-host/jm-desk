@@ -224,6 +224,18 @@ function presetRelay() { // 公司版打包时写进 builtin/integrations.json �
   return null;
 }
 const peerRelay = () => peers.relayUrl(settings().peers?.relay || '') || presetRelay();
+/* 自己部署的服务（串门中转、升级清单和安装包）：先直连，连不上再走系统代理（1.10.1）。
+ * 本机开着代理软件时，代理常常不转发内部域名、直接把连接断开（界面上是「连不上中转：net::ERR_CONNECTION_CLOSED」），而直连是通的。
+ * 哪条路通记 10 分钟，免得每次都先撞一次不通的那条。 */
+let directP = null, infraVia = null, infraAt = 0;
+const directSession = () => (directP ||= (async () => { const s = session.fromPartition('jm-direct'); await s.setProxy({ mode: 'direct' }); return s; })());
+const viaDirect = async (u, o) => (await directSession()).fetch(u, { ...o, credentials: 'omit' }), viaSystem = (u, o) => net.fetch(u, o);
+async function infraFetch(u, o) {
+  const first = infraVia === 'system' && Date.now() - infraAt < 10 * 60e3 ? 'system' : 'direct', order = first === 'direct' ? [['direct', viaDirect], ['system', viaSystem]] : [['system', viaSystem], ['direct', viaDirect]];
+  let err;
+  for (const [name, f] of order) { try { const r = await f(u, o); infraVia = name; infraAt = Date.now(); return r; } catch (e) { err = err || e; if (o?.signal?.aborted) break; } }
+  throw err;
+}
 /* ---------- Star 私有聊天（star.mjs，1.6.0）：好友以 Star 为准；聊天页内嵌 Star 网页，主进程沿用那里登录的 Cookie ---------- */
 function presetStar() { for (const f of [path.join(HERE, '..', 'builtin', 'integrations.json'), store.file('integrations-preset.json')]) { try { const b = star.normBase(JSON.parse(fs.readFileSync(f, 'utf8')).star || ''); if (b) return b; } catch {} } return null; }
 const starBase = () => star.normBase(settings().star?.base || '') || presetStar();
@@ -318,7 +330,7 @@ function myLook() {
 const visitors = new Map();
 const peerHub = createPeerHub({
   store: { read: (n, d) => store.read(n, d), write: (n, v) => store.write(n, v) },
-  settings: () => settings(), relay: peerRelay, fetchImpl: (u, o) => net.fetch(u, o),
+  settings: () => settings(), relay: peerRelay, fetchImpl: infraFetch,
   getIdentity: () => { try { const e = store.read('secrets.json', {}).peer; return e && safeStorage.isEncryptionAvailable() ? JSON.parse(safeStorage.decryptString(Buffer.from(e, 'base64'))) : null; } catch { return null; } },
   setIdentity: v => { const s = store.read('secrets.json', {}); s.peer = safeStorage.encryptString(JSON.stringify(v)).toString('base64'); store.write('secrets.json', s); },
   myName: () => String(settings().peers?.name || defaultPeerName()).slice(0, 20),
@@ -1285,7 +1297,7 @@ async function checkUpdate({ manual = false } = {}) {
   if (['downloading', 'ready'].includes(upd.status)) return updView();
   Object.assign(upd, { status: 'checking', error: null }); pushUpd(); lastUpdCheck = Date.now();
   try {
-    const info = await updater.check(net.fetch, { feedUrl: feed, current: app.getVersion() });
+    const info = await updater.check(infraFetch, { feedUrl: feed, current: app.getVersion() });
     Object.assign(upd, { status: info ? (info.unsupported ? 'unsupported' : 'available') : 'none', info, checkedAt: new Date().toISOString() });
   } catch (err) { Object.assign(upd, { status: 'error', error: err.message, checkedAt: new Date().toISOString() }); }
   pushUpd();
@@ -1302,7 +1314,7 @@ async function downloadAndInstall() {
   const info = upd.info; if (!info || info.unsupported) return updView();
   Object.assign(upd, { status: 'downloading', progress: 0, error: null }); pushUpd();
   try {
-    upd.file = await updater.download(net.fetch, info, path.join(app.getPath('userData'), 'updates'), p => { upd.progress = p; pushUpd(); });
+    upd.file = await updater.download(infraFetch, info, path.join(app.getPath('userData'), 'updates'), p => { upd.progress = p; pushUpd(); });
     Object.assign(upd, { status: 'ready', progress: 1 }); pushUpd();
   } catch (err) { Object.assign(upd, { status: 'error', error: err.message }); pushUpd(); return updView(); }
   if (!app.isPackaged) { shell.showItemInFolder(upd.file); return updView(); } // 开发运行时只展示下载好的文件

@@ -125,6 +125,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
 - **给某个好友开放的文件夹**（1.4.2，`app/main/peerfiles.mjs`，存在 `peers.json` 该好友的 `folders`）：「串门」页每个好友一行「＋ 文件夹」，系统选文件夹对话框选；不能是主目录、磁盘根、系统目录。好友的目录里多一节 `kind: 'files'`，只能在里面按词找（不用模型），回「文件名 + 命中的一句」，不发整份文件；只看文本类文件，跳过隐藏文件、符号链接、node_modules，数量和大小有上限。`peer:set` 不接受 `folders`，只能走 `peer:folder-add`（主进程核对路径）。
 - **B 的权限**：B 只用 `peers.scopeTools(catalog, settings.peers.share)` 筛出来的**只读**工具，用 B 自己的模型去找。可开放的范围是 `knowledge`（标了 `knowledge: true` 的接入）、`requirements`、`todos`；邮件、聊天和线索原文永远不开放。
 - **中转地址**：优先用 `settings.peers.relay`，其次用预置文件的 `relay` 字段。开源版为空。
+- **访问中转和升级地址先直连**（1.10.1，`main.mjs` 的 `infraFetch`）：本机开着代理软件时，代理常常不转发内部域名、直接断开连接（界面上是「连不上中转：net::ERR_CONNECTION_CLOSED」）。所以串门中转、升级清单和安装包都先直连，连不上再走系统代理；哪条路通记 10 分钟。
 
 ## 5. 接入平台 API 与 MCP，以及助手
 
