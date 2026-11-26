@@ -4,23 +4,42 @@ import assert from 'node:assert/strict';
 import { CATALOG, DEFAULT_LAYOUT, MOVED, migrateLayout, validateLayout } from '../app/main/catalog.mjs';
 import { elementSkillNames } from '../app/renderer/element-fx.mjs';
 
-test('元素技能能从旧布局找到；保留已放好的动作和用户自定义分组', () => {
+test('元素技能并在「互动」里（1.10.4）：旧布局迁移时补进去；已经放在别处的不重复；用户自定义分组不动', () => {
   const skillIds = elementSkillNames.map(name => 'skill.' + name);
-  const old = structuredClone(DEFAULT_LAYOUT);
-  old.groups = old.groups.filter(g => g.id !== 'elements');
-  old.seen = ['load', 'combo'];
-  const work = old.groups.find(g => g.id === 'work');
-  work.items.push(skillIds[0]);
-  const { layout } = migrateLayout(old);
-  const group = layout.groups.find(g => g.id === 'elements');
-  assert.deepEqual(group.items, skillIds.slice(1));
   assert.ok(skillIds.every(id => CATALOG[id].kind === 'skill'));
-  assert.equal(validateLayout(layout).ok, true);
-  assert.deepEqual(layout.groups.filter(g => g.id !== 'elements'), old.groups);
-  layout.groups = layout.groups.filter(g => g.id !== 'elements');
-  assert.equal(migrateLayout(layout).changed, false);
-  old.groups.push({ ...group, id: 'custom', items: ['skill.orb'] });
-  assert.deepEqual(migrateLayout(old).layout.groups, old.groups);
+  assert.equal(DEFAULT_LAYOUT.groups.some(g => g.id === 'elements'), false);
+  assert.ok(skillIds.every(id => DEFAULT_LAYOUT.groups.find(g => g.id === 'play').items.includes(id)));
+  // 很旧的布局：还没有元素技能，其中一个被用户放在了「工作」里
+  const old = { version: 1, seen: ['load', 'combo'], groups: [
+    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.wave'] },
+    { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、串门', items: ['app.work', 'app.settings', skillIds[0]] },
+    { id: 'custom', label: '我的', icon: 'burst', color: ['#8b5cf6', '#3b82f6'], items: ['skill.orb'] }] };
+  const { layout } = migrateLayout(structuredClone(old));
+  assert.deepEqual(layout.groups.map(g => g.id), ['play', 'chat', 'work', 'custom']);
+  assert.deepEqual(layout.groups[0].items, ['skill.teleport', 'skill.wave', ...skillIds.slice(1)]);
+  assert.deepEqual(layout.groups[2], old.groups[1]); assert.deepEqual(layout.groups[3], old.groups[2]);
+  assert.equal(validateLayout(layout).ok, true); assert.equal(migrateLayout(layout).changed, false, '迁移过的不再动');
+});
+
+test('1.10.3 的默认布局：「元素」并进「互动」，第一层多一个「聊天」；删掉后不再加回来', () => {
+  const skillIds = elementSkillNames.map(name => 'skill.' + name), base = DEFAULT_LAYOUT.groups;
+  const old = { version: 1, seen: ['meet', 'load', 'combo', 'elements'], groups: [
+    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave', 'skill.combo'] },
+    { id: 'elements', label: '元素', icon: 'burst', color: ['#8b5cf6', '#3b82f6'], tip: '火、水、电、叶、冰五种特效', items: skillIds },
+    ...structuredClone(base.filter(g => !['play', 'chat'].includes(g.id)))] };
+  const { layout, changed } = migrateLayout(structuredClone(old));
+  assert.equal(changed, true);
+  assert.deepEqual(layout.groups.map(g => g.id), ['play', 'chat', 'load', 'work', 'mail', 'more']);
+  assert.equal(layout.groups[0].items.length, 13); assert.equal(layout.groups[0].tip, '放技能、翻跟头、元素特效'); assert.equal(layout.groups[1].action, 'app.chat');
+  assert.equal(validateLayout(layout).ok, true); assert.equal(migrateLayout(layout).changed, false);
+  // 用户把「元素」改了名字：是他自己的分组，不并；第一层已经 6 个，聊天也加不进去
+  const mine = structuredClone(old); mine.groups[1].label = '我的元素';
+  assert.deepEqual(migrateLayout(mine).layout.groups.map(g => g.id), ['play', 'elements', 'load', 'work', 'mail', 'more']);
+  // 删掉「聊天」后不再加回来
+  layout.groups = layout.groups.filter(g => g.id !== 'chat'); assert.equal(migrateLayout(layout).changed, false);
+  // 一组最多 14 个
+  const many = structuredClone(DEFAULT_LAYOUT); many.groups[0].items.push('skill.psywave'); assert.equal(validateLayout(many).ok, true);
+  many.groups[0].items.push('skill.orb'); assert.match(validateLayout(many).errors.join(), /最多 14 个/);
 });
 
 test('旧布局迁移：待办 / 需求池 / 汇总并进工作台，问知识并进助手，收集并进线索，平台 / 接入 / 形象并进设置', () => {
@@ -32,7 +51,7 @@ test('旧布局迁移：待办 / 需求池 / 汇总并进工作台，问知识�
   const { layout, changed } = migrateLayout(old);
   assert.equal(changed, true);
   assert.deepEqual(layout.groups.map(g => [g.id, g.items]), [
-    ['work', ['app.work', 'app.agent', 'app.clues', 'app.peers']], ['load', []], ['mail', ['mail.open']], ['more', ['app.reminders', 'app.settings']]]); // 1.7.0 第一层加了「占用」
+    ['work', ['app.work', 'app.agent', 'app.clues', 'app.peers']], ['load', []], ['mail', ['mail.open']], ['more', ['app.reminders', 'app.settings']], ['chat', []]]); // 1.7.0 第一层加了「占用」，1.10.4 加了「聊天」（没有「互动」分组时排在最后）
   assert.equal(layout.groups[0].tip, '助手、工作台、线索、串门');
   assert.equal(validateLayout(layout).ok, true);
   assert.equal(migrateLayout(layout).changed, false, '迁移过的不再动');

@@ -24,7 +24,7 @@
 ```
 
 - 分组可以写 `action`（一个 `cmd` 类动作）而不写 `items`：第一层点一下直接执行，不展开第二层（1.4.2）。默认布局里的「占用」（`sys.load`）就是这样。布局里的 `seen` 记着迁移时加过的默认分组，用户删掉后不再加回来。
-- `groups` 是内圈分组，1–6 个；`items` 是点开分组后外圈的气泡，每组最多 8 个，每个动作最多出现一次。**必须保留 `app.settings`**，否则用户改不回来。
+- `groups` 是内圈分组，1–6 个；`items` 是点开分组后外圈的气泡，每组最多 14 个（1.10.4 之前是 8 个），每个动作最多出现一次。**必须保留 `app.settings`**，否则用户改不回来。
 - `label` 1–5 个字；`id` 用小写英文；`color` 是两个 `#rrggbb`，只能用色板里的颜色（其他颜色会被对齐到最近的一种，见界面约定）。
 - `icon` 只能从这些里选：`magic mail sliders portal burst orbit dash heart loop smile doc check chart inbox quill box wing moon pin corner bell`
 - 权威定义在 `app/main/catalog.mjs`（`CATALOG`、`DEFAULT_LAYOUT`、`validateLayout`、`ICONS`）。
@@ -33,7 +33,8 @@
 |---|---|---|
 | `skill.teleport` `skill.burst` `skill.orbit` `skill.zoom` `skill.sparkle` `skill.loop` `skill.wave` | 瞬移 爆发 绕圈 冲刺 爱心 跟头 挥手 | 精灵技能 |
 | `skill.combo` `skill.psywave` `skill.orb` `skill.meteor` `skill.spark` `skill.swirl` | 连招 念力波 能量球 流星 电光 旋风（1.8.0，能边飞边放；默认「互动」里只放了连招，其余可在设置 › 气泡里加） | 精灵技能 |
-| `app.agent` `app.work` `app.clues` `app.desk` | 助手、工作台、线索（主窗口的页面）、主窗口（上次看的页面）；主窗口还有「聊天」页（Star，见 §4.5） | 命令 |
+| `app.agent` `app.work` `app.clues` `app.desk` `app.chat` | 助手、工作台、线索、聊天（主窗口的页面；聊天是 Star，见 §4.5，1.10.4 起默认在第一层）、主窗口（上次看的页面） | 命令 |
+| `skill.fireflies` `skill.tide` `skill.forks` `skill.leaves` `skill.crystals` | 流萤火线 潮汐泡环 折枝电弧 回旋叶阵 悬冰星簇（元素特效；1.10.4 起并在「互动」里，旧布局里默认的「元素」分组迁移时并过去） | 精灵技能 |
 | `app.peers` | 串门（去好友桌面找资料，代码里叫 peers；1.8.0 之前叫「搬运」） | 面板 |
 | `sys.load` | 占用（气泡中间显示 CPU、下面显示内存，越忙颜色越暖；点开活动监视器 / 任务管理器） | 命令 |
 | `app.settings` `app.reminders` `app.update` | 设置 提醒 升级 | 面板 |

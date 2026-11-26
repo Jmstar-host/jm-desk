@@ -37,7 +37,7 @@ test('开放的文件夹：只搜文本文件，回文件名和片段；跳过�
 test('1.5.2 去掉本机会议纪要：旧布局第一层的「会议」分组删掉；旧入口 app.meeting 转到线索；第一层直接动作只能是命令', () => {
   const v = validateLayout(DEFAULT_LAYOUT); assert.ok(v.ok, v.errors.join()); assert.ok(!v.layout.groups.some(g => g.action === 'app.meeting'));
   const old = { version: 1, seen: ['meet'], groups: [{ id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], items: ['app.work', 'app.settings'] }, { id: 'meet', label: '会议', icon: 'quill', color: ['#e11d48', '#ec4899'], action: 'app.meeting', items: [] }] };
-  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['work', 'load'], '「会议」删掉；1.7.0 的「占用」加一次'); assert.ok(validateLayout(m.layout).ok);
+  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['work', 'load', 'chat'], '「会议」删掉；1.7.0 的「占用」、1.10.4 的「聊天」各加一次'); assert.ok(validateLayout(m.layout).ok);
   assert.equal(migrateLayout(m.layout).changed, false);
   assert.deepEqual(MOVED['app.meeting'], ['app.clues']);
   assert.equal(validateLayout({ version: 1, groups: [{ id: 'x', label: '设置', icon: 'doc', items: ['app.settings'] }, { id: 'y', label: '坏', icon: 'doc', action: 'skill.burst', items: [] }] }).ok, false);

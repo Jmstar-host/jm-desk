@@ -588,7 +588,7 @@ const hasModel = task => router.candidates(task).length > 0;
 async function aiLayout(request) {
   const cat = Object.entries(CATALOG).map(([id, a]) => `${id}｜${a.label}｜${a.tip}`).join('\n');
   const sys = `你在帮用户调整桌面精灵的气泡菜单。只输出一个 JSON 对象：{"layout":{"version":1,"groups":[{"id":"小写英文","label":"1-5个字","icon":"图标名","color":["#hex","#hex"],"tip":"一句说明","items":["动作id",...]}]},"summary":"一句话说明改了什么"}。分组颜色只能从这几种里选两种：${Object.entries(PALETTE).map(([k, v]) => k + ' ' + v).join('、')}（粉、蓝为主）。
-规则：只能使用下列动作 id，每个动作最多出现一次；分组 1-6 个，每组最多 8 个；必须保留 app.settings；图标只能从 ${ICONS.join('、')} 中选。
+规则：只能使用下列动作 id，每个动作最多出现一次；分组 1-6 个，每组最多 14 个；必须保留 app.settings；图标只能从 ${ICONS.join('、')} 中选。
 可用动作（id｜名称｜说明）：\n${cat}`;
   const out = await chatJSON(sys, `当前布局：${JSON.stringify(loadLayout())}\n用户要求：${request}`);
   const v = validateLayout(out.layout);
@@ -696,6 +696,7 @@ function runAction(id) {
   if (id === 'sys.load') return process.platform === 'darwin' ? shell.openPath('/System/Applications/Utilities/Activity Monitor.app') : process.platform === 'win32' ? spawn('taskmgr', { detached: true, stdio: 'ignore' }).unref() : null;
   if (id === 'app.work') return openDesk('work');
   if (id === 'app.agent') return openDesk('chat');
+  if (id === 'app.chat') return openDesk('star');
   if (id === 'app.clues') return openDesk('list');
   if (id === 'mail.compose') return shell.openExternal('mailto:');
   if (id === 'mail.open') {

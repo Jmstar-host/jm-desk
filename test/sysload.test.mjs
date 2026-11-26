@@ -22,9 +22,9 @@ test('动作快慢：三成以下正常速度，九成以上 3.5 倍，中间平
 test('第一层「占用」气泡：默认有；旧布局迁移时加一次，删掉后不再加回来', () => {
   const v = validateLayout(DEFAULT_LAYOUT); assert.ok(v.ok, v.errors.join()); assert.equal(v.layout.groups.find(g => g.id === 'load').action, 'sys.load');
   const old = { version: 1, groups: [{ id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#3b82f6'], items: ['skill.loop'] }, { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], items: ['app.settings'] }] };
-  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['play', 'elements', 'load', 'more']); assert.ok(validateLayout(m.layout).ok);
+  const m = migrateLayout(old); assert.equal(m.changed, true); assert.deepEqual(m.layout.groups.map(g => g.id), ['play', 'chat', 'load', 'more']); // 1.10.4：元素技能并在「互动」里，第一层多一个「聊天」 assert.ok(validateLayout(m.layout).ok);
   const removed = { ...validateLayout(m.layout).layout, groups: m.layout.groups.filter(g => g.id !== 'load') };
-  const again = migrateLayout(removed); assert.equal(again.changed, false); assert.deepEqual(again.layout.groups.map(g => g.id), ['play', 'elements', 'more']);
+  const again = migrateLayout(removed); assert.equal(again.changed, false); assert.deepEqual(again.layout.groups.map(g => g.id), ['play', 'chat', 'more']);
 });
 
 test('平滑：一次尖峰只抬一点，持续忙几次后才接近真实值', async () => {
@@ -39,9 +39,9 @@ test('1.8.0「互动」里加「连招」一次：放得下才加，删掉后不
   for (const id of ['skill.combo', 'skill.psywave', 'skill.orb', 'skill.meteor', 'skill.spark', 'skill.swirl']) assert.equal(CATALOG[id]?.kind, 'skill', id);
   assert.ok(DEFAULT_LAYOUT.groups.find(g => g.id === 'play').items.includes('skill.combo'));
   const old = { version: 1, groups: [{ id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#3b82f6'], items: ['skill.loop'] }, { id: 'more', label: '设置', icon: 'sliders', color: ['#17141f', '#3b82f6'], items: ['app.settings'] }] };
-  const m = migrateLayout(old); assert.deepEqual(m.layout.groups.find(g => g.id === 'play').items, ['skill.loop', 'skill.combo']); assert.ok(validateLayout(m.layout).ok);
+  const m = migrateLayout(old); assert.deepEqual(m.layout.groups.find(g => g.id === 'play').items.slice(0, 2), ['skill.loop', 'skill.combo']); assert.ok(validateLayout(m.layout).ok);
   const removed = { ...m.layout, groups: m.layout.groups.map(g => g.id === 'play' ? { ...g, items: ['skill.loop'] } : g) };
   assert.deepEqual(migrateLayout(removed).layout.groups.find(g => g.id === 'play').items, ['skill.loop']);
   const full = { version: 1, groups: [{ id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#3b82f6'], items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave', 'app.settings'] }] };
-  assert.equal(migrateLayout(full).layout.groups[0].items.length, 8, '满 8 个不再加');
+  assert.equal(migrateLayout(full).layout.groups[0].items.includes('skill.combo'), false, '满 8 个不再加连招');
 });

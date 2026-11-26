@@ -25,6 +25,7 @@ export const CATALOG = {
   'app.agent':      { kind: 'cmd', icon: 'magic', label: '助手', tip: '和 AI 多轮对话：查资料、问知识库、调用平台办事、交给本机执行者' },
   'app.work':       { kind: 'cmd', icon: 'chart', label: '工作台', tip: '专项 › 项目 › 需求 › 待办，汇总线索、勾掉待办、对齐需求管理平台', count: 'tasks' },
   'app.clues':      { kind: 'cmd', icon: 'inbox', label: '线索', tip: '收到的邮件、飞书、纪要原文，信息源和搬运到需求管理平台' },
+  'app.chat':       { kind: 'cmd', icon: 'smile', label: '聊天', tip: '打开主窗口的「聊天」页（团队的私有聊天）' },
   'sys.load':       { kind: 'cmd', icon: 'dash', label: '占用', tip: 'CPU 和内存占用；点一下打开活动监视器' },
   'app.peers':      { kind: 'app', icon: 'portal', label: '串门', tip: '选一个好友、选好范围，精灵飞去好友的桌面找回来' },
   'app.settings':   { kind: 'app', icon: 'sliders', label: '设置', tip: '形象、气泡、需求管理平台、接入、模型' },
@@ -39,11 +40,15 @@ export const CATALOG = {
 };
 export const ICONS = ['magic', 'mail', 'sliders', 'portal', 'burst', 'orbit', 'dash', 'heart', 'loop', 'smile', 'doc', 'check', 'chart', 'inbox', 'quill', 'box', 'wing', 'moon', 'pin', 'corner', 'bell'];
 
+/* 分组上限：第一层 6 个；一组里最多 14 个气泡（外圈铺到 300°，14 个时相邻两个仍不重叠；1.10.4 之前是 8） */
+export const MAX_ITEMS = 14;
+const ELEMENT_IDS = ['skill.fireflies', 'skill.tide', 'skill.forks', 'skill.leaves', 'skill.crystals'];
 export const DEFAULT_LAYOUT = {
   version: 1,
   groups: [
-    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、撒爱心', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave', 'skill.combo'] },
-    { id: 'elements', label: '元素', icon: 'burst', color: ['#8b5cf6', '#3b82f6'], tip: '火、水、电、叶、冰五种特效', items: ['skill.fireflies', 'skill.tide', 'skill.forks', 'skill.leaves', 'skill.crystals'] },
+    // 1.10.4：「元素」并进「互动」（一组最多 14 个）；第一层加「聊天」，点一下直接打开聊天页
+    { id: 'play', label: '互动', icon: 'magic', color: ['#ec4899', '#8b5cf6'], tip: '放技能、翻跟头、元素特效', items: ['skill.teleport', 'skill.burst', 'skill.orbit', 'skill.zoom', 'skill.sparkle', 'skill.loop', 'skill.wave', 'skill.combo', 'skill.fireflies', 'skill.tide', 'skill.forks', 'skill.leaves', 'skill.crystals'] },
+    { id: 'chat', label: '聊天', icon: 'smile', color: ['#ec4899', '#ea580c'], tip: '打开聊天', action: 'app.chat', items: [] },
     { id: 'load', label: '占用', icon: 'dash', color: ['#16a34a', '#3b82f6'], tip: 'CPU 和内存占用', action: 'sys.load', items: [] },
     { id: 'work', label: '工作', icon: 'doc', color: ['#ec4899', '#3b82f6'], tip: '助手、工作台、线索、串门', items: ['app.agent', 'app.work', 'app.clues', 'app.peers'] },
     { id: 'mail', label: '邮箱', icon: 'mail', color: ['#3b82f6', '#8b5cf6'], tip: '调起邮件客户端', items: ['mail.open', 'mail.compose', 'mail.stats'] },
@@ -88,11 +93,19 @@ export function migrateLayout(l) {
   if (!seen.has('elements')) {
     seen.add('elements'); changed = true;
     const playIndex = kept.findIndex(g => g.id === 'play' && !g.action);
-    if (playIndex >= 0 && kept.length < 6 && !kept.some(g => g.id === 'elements')) {
-      const preset = DEFAULT_LAYOUT.groups.find(g => g.id === 'elements');
-      const items = preset.items.filter(id => !used.has(id));
-      if (items.length) kept.splice(playIndex + 1, 0, { ...preset, items });
-    }
+    // 1.10.4 起元素技能直接放进「互动」，不再单独成组
+    const play = kept[playIndex], items = ELEMENT_IDS.filter(id => !used.has(id));
+    if (play && play.items.length + items.length <= MAX_ITEMS) { play.items = [...play.items, ...items]; items.forEach(id => used.add(id)); }
+  }
+  // 1.10.4：「元素」并进「互动」（只并还是默认内容的那一组；用户自己改过名字或内容的不动），第一层加「聊天」。各只做一次
+  if (!seen.has('merge-play')) {
+    seen.add('merge-play'); changed = true;
+    const play = kept.find(g => g.id === 'play' && !g.action), ei = kept.findIndex(g => g.id === 'elements' && !g.action && g.label === '元素' && g.items.every(id => ELEMENT_IDS.includes(id)));
+    if (play && ei >= 0 && play.items.length + kept[ei].items.length <= MAX_ITEMS) { play.items = [...play.items, ...kept[ei].items]; if (play.tip === '放技能、翻跟头、撒爱心') play.tip = '放技能、翻跟头、元素特效'; kept.splice(ei, 1); }
+  }
+  if (!seen.has('chat')) {
+    seen.add('chat'); changed = true;
+    if (kept.length < 6 && !kept.some(g => g.action === 'app.chat' || g.items.includes('app.chat'))) { const pi = kept.findIndex(g => g.id === 'play'); kept.splice(pi >= 0 ? pi + 1 : kept.length, 0, { ...DEFAULT_LAYOUT.groups.find(g => g.id === 'chat'), items: [] }); }
   }
   return { layout: { ...l, groups: kept, seen: [...seen] }, changed };
 }
@@ -132,7 +145,7 @@ export function validateLayout(l) {
       if (used.has(x)) { errors.push(`动作重复出现：${x}`); return false; }
       used.add(x); return true;
     });
-    if (items.length > 8) errors.push(`分组「${label}」最多 8 个气泡`);
+    if (items.length > MAX_ITEMS) errors.push(`分组「${label}」最多 ${MAX_ITEMS} 个气泡`);
     return { id, label, icon, color, tip: String(g.tip || '').slice(0, 30), ...(action ? { action } : {}), items };
   });
   if (!used.has('app.settings')) errors.push('必须保留「设置」气泡（app.settings），否则改不回来');
