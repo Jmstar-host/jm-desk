@@ -42,7 +42,7 @@ ipcRenderer.on('mp2:link', () => { if (tab === 'account') render(); });
 document.addEventListener('input', e => { const t = e.target; if (t.tagName !== 'TEXTAREA') return; t.style.height = 'auto'; t.style.height = Math.min(240, t.scrollHeight + 2) + 'px'; });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAnimated(); });
 
-let renderSeq = 0;
+let renderSeq = 0, modsFresh = false; // modsFresh：下一次读形象页时强制重新拉 MOD 库清单
 async function render() {
   const seq = ++renderSeq;
   S = await ipcRenderer.invoke('panel:state');
@@ -68,7 +68,7 @@ const COLOR_LABELS = { body: '身体', body2: '渐变', belly: '肚皮', cheek: 
 const DEF = { body: '#b9a6ff', body2: '#8fd8ff', belly: '#fff6fb', cheek: '#ff9ccf', eye: '#2a1f3d', star: '#ffe27a', antenna: 'star', tail: true, size: 1 };
 async function tabCharacter(body) {
   const cur = { ...DEF, ...S.character.params };
-  const G = await ipcRenderer.invoke('char:gallery'), msg = h('div');
+  const G = await ipcRenderer.invoke('char:gallery', modsFresh), msg = h('div');
   const run = async (btn, ch, ...a) => {
     msg.replaceChildren(); const t = btn.textContent; btn.disabled = true; btn.textContent = '处理中…';
     const r = await ipcRenderer.invoke(ch, ...a);
@@ -82,9 +82,12 @@ async function tabCharacter(body) {
       h('div', { class: 'row' }, p.id === G.current ? h('span', { class: 'tag ok' }, '使用中') : h('button', { class: 'pri', onclick: e => run(e.target, 'char:use', p.id) }, '使用'),
         p.builtin ? null : h('button', { class: 'ghost', onclick: e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认删除'; return; } run(e.target, 'char:remove', p.id); } }, '删除'))))),
     msg));
-  // MOD 库（1.8.4）：团队共享的形象，点一下下载并使用
+  // MOD 库（1.8.4）：团队共享的形象，点一下下载并使用。清单缓存 5 分钟；「刷新」立刻重新拉一次（1.10.0）
+  const fresh = modsFresh; modsFresh = false;
   if (G.library && G.library.on) body.append(h('div', { class: 'card' }, h('h3', {}, G.library.name || 'MOD 库'),
-    h('div', { class: 'muted' }, '团队共享的形象：下载后只存在本机，随时可以换回来。'),
+    h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, '团队共享的形象：下载后只存在本机，随时可以换回来。'),
+      h('button', { class: 'sm', title: '重新拉取 MOD 库清单，看有没有新的形象', onclick: e => { e.target.disabled = true; e.target.textContent = '刷新中…'; modsFresh = true; render(); } }, '刷新')),
+    fresh && !G.library.error ? h('div', { class: 'ok' }, `已刷新：现在有 ${G.library.mods.length} 个形象`) : null,
     G.library.error ? h('div', { class: 'err' }, 'MOD 库现在打不开：' + G.library.error) : null,
     !G.library.error && !G.library.mods.length ? h('div', { class: 'muted' }, 'MOD 库里还没有形象。') : null,
     ...G.library.mods.map(x => h('div', { class: 'li' },

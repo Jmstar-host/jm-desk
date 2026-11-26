@@ -797,6 +797,26 @@ async function knowledgeFor(query) {
   } catch (e) { console.warn('knowledge', e.message); return []; }
 }
 ipcMain.handle('work:new', safe((_e, o) => services.newDraft(o || {})));
+/* 协同录入（1.10.0）：单独一个窗口，一条需求走全流程。写平台的 flow:act 只由这个窗口里人点的按钮触发，不做成助手或本机 AI 的工具 */
+let flowWin = null;
+function openFlow(id) {
+  const u = pathToFileURL(R('flow.html')); u.searchParams.set('id', String(id));
+  if (flowWin && !flowWin.isDestroyed()) { flowWin.loadURL(u.href); flowWin.show(); flowWin.focus(); return; }
+  const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, W = Math.min(1080, wa.width - 80), H = Math.min(760, wa.height - 60);
+  flowWin = new BrowserWindow({ width: W, height: H, minWidth: 820, minHeight: 520, x: Math.round(wa.x + (wa.width - W) / 2) + 24, y: Math.round(wa.y + (wa.height - H) / 2) + 16, show: false, title: 'JM Desk · 协同录入',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default', trafficLightPosition: { x: 18, y: 20 }, backgroundColor: '#fbf8ff', autoHideMenuBar: true, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
+  flowWin.loadURL(u.href); flowWin.once('ready-to-show', () => flowWin.show()); flowWin.on('closed', () => { flowWin = null; });
+}
+ipcMain.handle('flow:open', safe((_e, id) => { openFlow(String(id)); return true; }));
+ipcMain.handle('flow:state', safe((_e, id) => services.flowState(String(id))));
+ipcMain.handle('flow:options', safe((_e, id, kind, ctx) => services.flowOptions(String(id), kind, ctx && typeof ctx === 'object' ? ctx : {})));
+ipcMain.handle('flow:draft', safe(async (_e, id, kind, o) => {
+  if (!hasModel('summary')) throw new Error('还没有可用的模型（设置 › 模型）');
+  const it = services.workItem(String(id));
+  return services.flowDraft(String(id), kind, { choices: Array.isArray(o?.choices) ? o.choices.slice(0, 40).map(c => ({ id: c.id, name: String(c.name || '').slice(0, 80) })) : [], note: o?.note, knowledge: await knowledgeFor(`${it.title} ${String(it.summary || '').slice(0, 200)}`) });
+}));
+ipcMain.handle('flow:act', safe(async (_e, id, name, params) => { const r = await services.flowAct(String(id), String(name), params && typeof params === 'object' ? params : {}, 'me'); broadcast('work:changed', String(id)); return r; }));
+ipcMain.handle('work:proposal', safe((_e, id, action, o) => { const r = services.proposal(String(id), String(action), { title: o?.title, into: o?.into, by: 'me' }); pushCounts(); return r; }));
 ipcMain.handle('work:scope', safe(() => services.scopeIds({ fresh: true })));
 ipcMain.handle('work:evidence', safe((_e, id, f) => services.setEvidence(String(id), f)));
 ipcMain.handle('work:push', safe(async (_e, id, mode) => { const r = await services.pushWork(String(id), ['mine', 'platform'].includes(mode) ? mode : undefined); pushCounts(); return r; }));

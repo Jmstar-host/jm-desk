@@ -7,6 +7,7 @@ import * as mail from './mail.mjs';
 import { packSignals } from './summary.mjs';
 import * as wm from './workmodel.mjs';
 import * as digest from './digest.mjs';
+import * as flow from './flow.mjs';
 import { mergeContent as starMerge } from './star.mjs';
 const { store: desk } = pipeline;
 
@@ -96,6 +97,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
       parentId: x.parentId || null, productId: x.productId || null, product: x.product || null, updatedAt: x.updatedAt || x.addedAt || null,
       mp2: x.mp2 ? { kind: x.mp2.kind, id: x.mp2.id, code: x.mp2.code || null } : null, mp2Label: x.mp2Status?.label || null, missing: x.mp2Status?.found === false,
       pending: wm.mp2Pending(x).length, pushError: x.mp2Error && x.mp2Dirty?.length ? x.mp2Error : null, suggest: !x.mp2 && x.mp2Suggest ? x.mp2Suggest.action : null,
+      proposed: !!x.proposed, sources: (x.sids || []).length,
       todosOpen: (kids.get(x.id) || []).filter(c => c.level === 'todo' && c.status === 'open').length, clues: (x.sids || []).length, ready: !x.mp2 && x.ready ? x.ready : null, stagedBy: x.mp2 && wm.mp2Pending(x).length ? x.stagedBy || null : null }));
     return { items, taxonomy: t, levels: wm.LEVELS, reqTypes: wm.REQ_TYPES, scope, platform: { id: 'mp2', linked: mp2.ready(cfg), name: '需求管理平台', base: cfg.mp2?.webBase || cfg.mp2?.baseUrl || null, syncedAt: t.syncedAt || null },
       /* 工作台能切换的平台。接入方式有两种：contract = 平台按 JM Desk 的接入规范（docs/DESK-CONTRACT.md）开放接口；adapter = JM Desk 按平台现有的接口适配。
@@ -160,6 +162,14 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     }
   }
   /* AI 管理：重新分层、挂靠、合并重复、按需新建项目 / 专项 */
+  /* AI 提议新建的项目 / 需求：人确认（可改名）、并进已有的、或不采纳（1.10.0） */
+  const NEED_CONFIRM = '这是 AI 提议新建的，还没有人确认：先在工作台「AI 提议」里确认、并进已有的记录，或不采纳';
+  function proposal(id, action, { title, into, by = 'me' } = {}) {
+    const w = loadWork();
+    const r = action === 'confirm' ? wm.confirmProposal(w, id, { title, by }) : action === 'merge' ? wm.mergeProposal(w, id, String(into || ''), { by }) : action === 'dismiss' ? wm.dismissProposal(w, id, { by }) : null;
+    if (!r) throw new Error('不认识的操作');
+    saveWork(w); return { id: r.id };
+  }
   async function reorganize() {
     const w = loadWork(), taxonomy = dataStore.read('taxonomy.json', { lines: [], products: [] });
     if (!w.some(x => x.status === 'open')) return { log: [], summary: '没有进行中的工作' };
@@ -206,6 +216,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   function stageReady(id, by, { action, product, productMp2Id } = {}) {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
     if (it.mp2) throw new Error('这条已经对应平台记录了，用 update_work 改');
+    if (it.proposed) throw new Error(NEED_CONFIRM);
     let p = product ? productByName(product) : null;
     if (product && !p) throw new Error(`产品树里没有「${product}」，先 list_mp2_upload_products 看可选的`);
     if (!p && productMp2Id != null) { const t = taxonomy(), pr = (t.products || []).find(x => x.mp2Id === productMp2Id), ln = pr && (t.lines || []).find(l => l.id === pr.lineId); if (pr) p = { product: pr.name, productId: pr.id, line: ln?.path || null, lineId: ln?.id || null }; }
@@ -231,6 +242,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   async function createProjectWork(id, by = 'me', { productId } = {}) {
     const cfg = requireMp2(), t = taxonomy(), it = loadWork().find(x => x.id === id);
     if (!it) throw new Error('这条工作已经不在了');
+    if (it.proposed) throw new Error(NEED_CONFIRM);
     if (it.level !== 'project') throw new Error('只有「项目」可以在需求管理平台新建为项目');
     if (it.mp2) throw new Error(`已经对应 ${it.mp2.code || '#' + it.mp2.id}`);
     const prod = productId ? (t.products || []).find(p => p.mp2Id === Number(productId)) : (t.products || []).find(p => p.id === it.productId || p.name === it.product);
@@ -279,6 +291,7 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
   }
   async function uploadWork(id, by = 'me', { product, productId } = {}) {
     const cfg = requireMp2();
+    if (loadWork().find(x => x.id === id)?.proposed) throw new Error(NEED_CONFIRM);
     if (product || productId) { // 选了平台产品（界面下拉给 MP2 id，助手给名称）：先按产品树改平台产品（产品线跟着走），再上传
       const t = taxonomy(), name = String(product || '').trim(), list = t.products || [];
       const p = productId ? list.find(x => mp2IdOf(x) === Number(productId))
@@ -436,6 +449,45 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     }
     return { fields, missing: (data?.missing || []).filter(m => m && m.field).slice(0, 8), related, sources: [...sigs.map(s => ({ id: s.id, title: s.title })), ...kn.map(k => ({ kb: k.title }))] };
   }
+  /* ---------- 协同录入（1.10.0，flow.mjs）：一条平台上的原始需求的全流程。读现状、列可选项、AI 出草稿；写平台只在人点了之后 ---------- */
+  let flowIoCache = null;
+  const flowIo = () => { const cfg = requireMp2(); return (flowIoCache ||= flow.serialIo({ read: (op, o) => mp2.opRead(desk.config(), op, o), write: (op, o) => mp2.opWrite(desk.config(), op, o) })), cfg && flowIoCache; };
+  const flowItem = id => { const it = loadWork().find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了'); if (it.mp2?.kind !== 'requirement') throw new Error('协同录入从平台上的原始需求开始：先把这条录入平台'); return it; };
+  const flowSnaps = new Map();
+  async function flowState(id) {
+    const it = flowItem(id), snap = await flow.snapshot(flowIo(), { requirementId: it.mp2.id });
+    flowSnaps.set(id, snap);
+    return { ...snap, current: flow.current(snap), work: { id: it.id, title: it.title, clues: (it.sids || []).length }, labels: { conclusion: flow.CONCLUSION, roles: flow.ROLES, week: flow.WEEK_STATUS, matter: flow.MATTER, task: flow.TASK_STATUS, card: flow.CARD_STATUS } };
+  }
+  async function flowOptions(id, kind, ctx = {}) {
+    const it = flowItem(id), snap = flowSnaps.get(id), list = await flow.options(flowIo(), String(kind), { productId: snap?.requirement.productId, ...ctx });
+    return ctx.like ? flow.rank(String(ctx.like), list) : flow.rank(it.title, list);
+  }
+  /* AI 的草稿：材料 = 这条挂的线索 + 线索池里相关的线索（S）+ 知识库检索结果（K）+ 平台上这条需求和链路的现状（R）。只给建议，不写任何东西 */
+  async function flowDraft(id, kind, { choices = [], knowledge = [], note = '' } = {}) {
+    const it = flowItem(id), snap = flowSnaps.get(id) || await flowState(id), all = new Map(desk.listSignals().map(s => [s.id, s]));
+    let sigs = (it.sids || []).map(s => all.get(s)).filter(Boolean).slice(0, 8);
+    if (sigs.length < 3) sigs = [...sigs, ...relatedSignals(it).filter(s => !sigs.includes(s))].slice(0, 8);
+    const kn = (knowledge || []).filter(k => k && k.text).slice(0, 4), r = snap.requirement;
+    const facts = [`${r.code || ''} ${r.title}（${r.statusLabel}）`, r.description, snap.task?.conclusion ? Object.entries(snap.task.conclusion).filter(([, v]) => v).map(([k, v]) => `${flow.CONCLUSION[k]}：${v}`).join('\n') : '',
+      ...snap.plans.map(p => `需求计划 ${p.code || ''} ${p.name}：${p.start || '未排期'} ~ ${p.end || ''}${p.delivery ? '，交付状态 ' + p.delivery : ''}`), ...snap.functions.map(f => `功能 ${f.title}：${f.start || ''} ~ ${f.end || ''}${f.percent != null ? '，完成 ' + f.percent + '%' : ''}；目标：${f.goal || '未定'}`),
+      ...snap.projects.map(p => `项目 ${p.code || ''} ${p.name}：${p.start || ''} ~ ${p.end || ''}`), ...snap.projectPlans.filter(p => p.covers).map(p => `项目计划 ${p.name}：目标 ${p.goal || '未定'}，计划上线 ${p.target || '未定'}`)].filter(Boolean).join('\n').slice(0, 6000);
+    const materials = { R: facts }, labels = { R: '平台上这条需求的现状' }, parts = [`R｜平台现状\n${facts}`];
+    sigs.forEach((s, i) => { const k = 'S' + (i + 1); materials[k] = String(s.content || ''); labels[k] = digest.summarize(s).sourceLabel + ' · ' + s.title; parts.push(`${k}｜${digest.summarize(s).sourceLabel}｜${s.title}｜${s.occurred_at || s.collectedAt || ''}\n${String(s.content || '').slice(0, 5000)}`); });
+    kn.forEach((k, i) => { const key = 'K' + (i + 1); materials[key] = String(k.text); labels[key] = '知识库 · ' + k.title; parts.push(`${key}｜知识库｜${k.title}\n${String(k.text).slice(0, 3000)}`); });
+    const data = await chatJSON(flow.buildDraftPrompt(String(kind), { choices }), `${note ? '用户的补充说明（是要求，不是依据）：' + String(note).slice(0, 400) + '\n\n' : ''}今天是 ${new Date().toISOString().slice(0, 10)}，本周周一是 ${snap.week}。\n\n材料：\n${parts.join('\n\n---\n\n')}`);
+    const out = flow.checkDraft(String(kind), data, { choices, materials, labels });
+    return { ...out, sources: [...sigs.map((s, i) => ({ key: 'S' + (i + 1), id: s.id, title: s.title })), ...kn.map((k, i) => ({ key: 'K' + (i + 1), kb: k.title }))] };
+  }
+  /* 人在协同录入窗口里点了确认：写平台，并在这条工作的变更记录里留一笔 */
+  async function flowAct(id, name, params = {}, by = 'me') {
+    const it = flowItem(id), a = flow.ACTIONS[name]; if (!a) throw new Error('不认识的操作');
+    const snap = flowSnaps.get(id), r = await flow.act(flowIo(), name, { requirementId: it.mp2.id, productId: snap?.requirement.productId, ...params });
+    const w = loadWork(), cur = w.find(x => x.id === id);
+    if (cur) { const now = new Date().toISOString(); (cur.history ||= []).push({ at: now, by, fields: ['flow'], note: `协同录入：${a.label}${params.name || params.title ? '「' + String(params.name || params.title).slice(0, 20) + '」' : ''}` }); cur.history = cur.history.slice(-20); cur.updatedAt = now; saveWork(w); }
+    desk.log('flow', `协同录入 · ${a.label}`, { id });
+    return { ok: true, result: r && typeof r === 'object' ? { id: r.id ?? null, code: r.code ?? r.project_code ?? r.planNo ?? null, name: r.name ?? r.title ?? null } : null };
+  }
   /* 保存字段依据（录入前由界面带上）：{ 字段: { by: 'ai'|'me', sid, quote } } */
   function setEvidence(id, fields) {
     const w = loadWork(), it = w.find(x => x.id === id); if (!it) throw new Error('这条工作已经不在了');
@@ -453,5 +505,5 @@ export function createServices({ dataStore, chatJSON, getSettings }) {
     }
     return n;
   }
-  return { starClues, stageReady, scopeIds, newDraft, aiFill, setEvidence, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
+  return { flowState, flowOptions, flowDraft, flowAct, proposal, starClues, stageReady, scopeIds, newDraft, aiFill, setEvidence, addTodo, requirementPool, workBoard, pushWork, workTree, workItem, editWork, reorganize, syncTaxonomy, bindWork, unbindWork, uploadWork, mp2UploadTargets, createProjectWork, productByName, applyMp2Suggestion, dismissMp2Suggestion, suggestMp2, pushMp2, searchMp2Requirements, refreshMp2, mp2Projects, workList, signals, signal, setIgnored, candidates, setSource, collect, summarize, tasks, setTask, lastSummary, pool, ticker: (n = 30) => desk.ticker(n), mailStats: () => cachedStats(getSettings().mailDb) };
 }

@@ -266,6 +266,10 @@ async function write(cfg, operationId, { path, body, task }) {
   }
   return (result && typeof result.body === 'object' && result.body) || result || {};
 }
+/* 协同录入（1.10.0）：链路上的其他对象（澄清、需求计划、功能 / 事项、项目计划、周总结……）按操作号直接调。
+ * 读写都只走平台登记过的操作；写操作由调用方保证是人点了确认之后才发。 */
+export const opRead = (cfg, operationId, { query, path, what } = {}) => read(cfg, operationId, { query, path, what: what || 'flow', timeoutMs: 45000 });
+export const opWrite = (cfg, operationId, { path, body, task } = {}) => write(cfg, operationId, { path, body, task: task || 'JM Desk 协同录入' });
 /** 改原始需求：只送改动字段（MP2 对 null / 省略的字段保持原值）。 */
 export const updateRequirement = (cfg, id, body) => write(cfg, OP_REQUIREMENT_UPDATE, { path: { id }, body, task: 'JM Desk 工作台：回写需求修改' });
 /** 一个平台产品下的研发项目（含说明、起止、revision）：[{ id, project_code, name, description, planned_start, planned_end, revision, … }] */

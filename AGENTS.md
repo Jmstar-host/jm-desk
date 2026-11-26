@@ -56,14 +56,14 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `kind: "gltf"`：`entry` 是 `.glb`，可以写 `boneMap`（模型骨骼名 → 统一骨骼名）、`size`、`theme: ["#a1", "#a2"]`（面板主色）。
   - 统一骨骼名：`Spine1 Head LEar REar LArm RArm LForeArm RForeArm Tail1..Tail7`，缺的骨骼会跳过。
   - 动作幅度：导入的 glTF 模型默认收敛（整条尾巴的摆幅按节数平分、睡着时尾巴不往外卷、不抖耳朵），避免长尾巴来回甩看着像抽动；manifest 可写 `motion: { tail, speed, ear, curl }` 调整（`engine.mjs` 的 `MOTION`）。
-- **MOD 库**（1.8.4，团队共享的形象，「设置 › 形象」最上面）：一个 https 地址上的 `index.json`（`settings.mods.url`，或企业预置文件顶层的 `mods`；开源版为空就不显示）。条目两种：`kind: "lumi"` 只带内置星灵的一套参数（配色、触角等，走 `sanitizeParams`）；`kind: "gltf"` 是 `.glb` 模型，`url` 可以写相对路径，但必须和清单同源。清单缓存 5 分钟，只当数据。用中转分发时放在 `DL_DIR/mods/`（`index.json` + `*.glb`，文件名小写），地址是 `<中转地址>/dl/<下载口令>/mods/index.json`（`relay/server.mjs`，只读、不进更深的目录）。第一批内容（六套星灵配色）在 `presets/mods/index.json`。**库是发给同事的，和随包形象一样只放原创或许可允许分发的（CC0 等）；现有动漫、游戏角色的模型不要放进去**，那类模型各人只留在自己的 `DATA`。
+- **MOD 库**（1.8.4，团队共享的形象，「设置 › 形象」最上面；1.10.0 加了「刷新」按钮，立刻重新拉清单）：一个 https 地址上的 `index.json`（`settings.mods.url`，或企业预置文件顶层的 `mods`；开源版为空就不显示）。条目两种：`kind: "lumi"` 只带内置星灵的一套参数（配色、触角等，走 `sanitizeParams`）；`kind: "gltf"` 是 `.glb` 模型，`url` 可以写相对路径，但必须和清单同源。清单缓存 5 分钟，只当数据。用中转分发时放在 `DL_DIR/mods/`（`index.json` + `*.glb`，文件名小写），地址是 `<中转地址>/dl/<下载口令>/mods/index.json`（`relay/server.mjs`，只读、不进更深的目录）。第一批内容（六套星灵配色）在 `presets/mods/index.json`。**库是发给同事的，和随包形象一样只放原创或许可允许分发的（CC0 等）；现有动漫、游戏角色的模型不要放进去**，那类模型各人只留在自己的 `DATA`。
 - **形象库**（`app/main/gallery.mjs`，「设置 › 形象」）：列表来自 `app/builtin/characters.json`（随包分发，只能放原创形象，目前为空）和 `DATA/character-sources.json`（用户自己维护）。下载只接受 https，下载后校验 glTF 2.0，上限 60 MB。**第三方角色的链接只能放在用户的 `DATA` 里**。
 
 ## 3. 三个维度和工作体系
 
 - **线索**：收到的原文，包括邮件（Mailspring 本地库）、飞书 @我 和单聊、飞书会议纪要。收集器在 `src/sources/`，存放在 `~/.jm-desk-space/outbox/`。线索窗口是 `app/renderer/list.*`，摘要和解析在 `app/main/digest.mjs`。
 - **待办**：从线索整理出的、用户本人要做的跟进动作。挂在某条需求下的叫「需求跟进」，不挂上级的叫「日常」。一次回复、确认、询问都是待办，不是需求。
-- **需求池**：某个项目里要完成的一件完整的事，类型分 新功能 / 优化 / 问题。**每条需求必须属于一个项目**，没有合适的项目时 AI 新建一个，并标为「AI 新建，待确认」。
+- **需求池**：某个项目里要完成的一件完整的事，类型分 新功能 / 优化 / 问题。**每条需求必须属于一个项目**，没有合适的项目时 AI 提议新建一个，等人在「AI 提议」里确认（1.10.0，见下面「AI 提议新建要人确认」）。
 - 层级（`app/main/workmodel.mjs`，数据在 `DATA/work.json`）：专项（产品线级）› 项目 › 需求 › 待办，上级只能是更高层级。每条工作挂在 产品线 › 平台产品 下；产品树从已关联的需求管理平台同步：优先读「产品项目计划」的树（`GET:/api/v1/plans/portfolio/tree`，产品线 › 平台产品 › 项目，含项目状态），平台没有这个接口或连接没授权时退回业务产品树（`GET:/api/business-product/tree`，没有项目），存到 `DATA/taxonomy.json`（`lines` / `products` / `projects`）。没同步时 AI 填写的归属标为「建议」。
 - **对齐需求管理平台（只读）**：项目、需求可以绑定平台记录（`w.mp2 = { kind: project|requirement, id, code, title }`，`workmodel.mjs` 的 `bindMp2` / `unbindMp2`），绑定后 `w.mp2Status` 显示平台实时状态：项目取产品树的状态与周期；需求取 `GET:/api/v1/plans/targets/by-requirements`（状态、所在需求计划的交付状态与排期、所属功能）。需求用 `GET:/api/requirement/list?keyword=` 搜。待办、专项只在本地。绑定只改本机，不写平台；AI 整理不改 `mp2`。工作台打开时、同步产品树后会刷新一次进度。
 - **工作台怎么排**（1.3.1 起，1.4.0 加平台切换与可折叠的产品线；`app/renderer/work.*`，数据来自 `services.workBoard`）：左边是平台（关联状态、「拉取最新」）、「我要处理的」（待录入 = 本机整理出还没进平台的项目和需求；待推送 = 平台记录在本机改过还没推；我的待办 = 只在本机）、「平台结构」（产品线 › 平台产品）；右边按平台的录入字段展示。
@@ -76,6 +76,12 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - 录入时字段依据存在 `w.evidence.fields`（`{ by: 'ai'|'me', sid, quote, verified }`），平台描述末尾带「字段依据」：摘录 + 出处，不带线索全文（用户的选择）。平台实现 `DESK-CONTRACT.md` §7.5 后改走证据接口。
 - **负责范围**（1.4.1，`services.scopeIds`，缓存 5 分钟，拉取后失效）：平台只允许 AI 关联改负责范围内平台产品的记录。工作台把范围外的平台产品标「只读」，记录详情禁用编辑并说明去平台「AI 接入」加范围；`pushWork` 推送前先查，范围外直接返回 `outOfScope`，不发请求。
 - **新建需求**（1.4.1，顶栏「＋ 新建需求」，`services.newDraft`）：建一条待录入（在所选的、范围内的平台产品下），写一两句要做什么，点「AI 结合线索和知识补全」。`aiFill` 的依据来自：这条挂的线索、线索池里按关键词找到的相关线索（`relatedSignals`）、标了 `knowledge` 的接入里 `knowledge_search` 的结果（`main.mjs` 的 `knowledgeFor`，编号 K1…）。知识库依据存为 `{ by: 'ai', kb, quote }`；用到的线索在录入时挂到这条的 `sids` 上。
+- **AI 提议新建要人确认**（1.10.0，`workmodel.mjs` 的 `PROPOSABLE` / `confirmProposal` / `mergeProposal` / `dismissProposal`，`services.proposal`，IPC `work:proposal`）：AI 汇总和「AI 整理」想新建的**项目和需求**先是提议（`proposed: true`），在工作台「AI 提议」里等人决定：确认新建（可以改名，改过的名字 AI 之后不再覆盖）、并进已有的一条（线索和下面的工作跟过去）、或不采纳。确认之前不进「待录入」，`uploadWork` / `createProjectWork` / `stageReady` 都会拒绝。待办只在本机，不走提议。
+- **协同录入**（1.10.0，`app/main/flow.mjs`，窗口 `renderer/flow.*`，入口是平台上原始需求详情右上角的「协同录入」）：一条原始需求在平台上的全流程，九步：原始需求 → 澄清 → 已澄清 → 需求计划 → 需求计划更新（改名、排期）→ 项目 → 功能 → 项目 / 功能目标 → 周总结。
+  - 分工：**AI 只出建议和草稿**（`flow:draft`，每个字段标出处：线索 S、知识库 K、平台现状 R；原话在材料里核对过才打勾；该用已有的还是新建，AI 只能从给它的候选里挑）；**选哪个、叫什么、写不写由人定**。每次写平台前窗口先列出「将写入什么」，人再点一次才发（`flow:act`）。这条路径只由窗口里的按钮触发，不做成助手或本机 AI 的工具；动作表 `flow.ACTIONS` 里没有删除类动作。
+  - 读现状 `flow.snapshot`：一次读出需求、澄清任务与结论、已澄清卡片、所在需求计划与排期、关联的功能、项目、项目计划与本周周总结，算出每一步是 做完 / 该做 / 没轮到 / 卡住。某一处平台数据没读到时记在 `gaps` 里，界面如实标「没读到」，不当成「没有」。
+  - 平台的 AI 通道一次只处理一个请求，并发会回「忙」：所有调用经 `flow.serialIo` 排队，读遇到忙重试两次，写不重试。平台调用走 `src/mp2.mjs` 的 `opRead` / `opWrite`（按操作号）。
+  - 平台的规矩照旧由平台把关，这里只是提前说明：澄清审批是审批人本人的判断（只有平台说你能审批时才出按钮）；周总结只有该角色在项目上的本人能写；项目本身没有文字目标，项目的目标写在项目计划里，功能的目标是它的验收标准和截止日；需求计划要挂在方案下才能关联到功能，给产品关联方案只能由人在平台上做。
 - **AI 的职责**：汇总时按层级抽取，并合并到已有工作（`same_as`）；「AI 整理」带着原文重新分层、挂靠、合并重复，新建项目时用 `children` 写明挂哪些需求。**人改过的字段记入 `locked`，AI 之后不再覆盖**，每次改动都记在 `history` 里。
 
 ## 4. 员工提醒（不算待办）
@@ -205,7 +211,8 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
 app/main/main.mjs          主进程：窗口、托盘、IPC、面板、升级、提醒调度、内置工具
 app/main/catalog.mjs       动作目录、默认布局、布局校验
 app/main/services.mjs      汇总、待办、需求池、线索、收集（调用 src/）
-app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定、证据链
+app/main/workmodel.mjs     工作分层、AI 抽取与整理、人工锁定、证据链、AI 提议的确认
+app/main/flow.mjs          协同录入：一条需求在平台上的全流程（读现状、可选项、人确认后的写入、AI 草稿的核对）
 app/main/digest.mjs        线索解析（飞书聊天、邮件）
 app/main/integrations.mjs  MCP 客户端（stdio / http）、OpenAPI、工具权限、导入
 app/main/agent.mjs         助手运行时：converse（多轮对话，助手页用）、run（单轮，串门接待访客用）
@@ -228,7 +235,7 @@ app/renderer/hud.*         以精灵为中心的提示层：气泡菜单、说�
 app/renderer/engine.mjs    3D 舞台、特效、形象包加载；lumi.mjs 是默认形象
 app/renderer/panel.*       精灵旁边的面板（设置和各功能页，apps.js 是功能页）
 app/renderer/desk.html     主窗口左边一列（助手 / 工作台 / 线索 / 聊天 + 串门、设置）；每个页面各是一个 WebContentsView（main.mjs 的 openDesk），切换时不重载；聊天页内嵌 Star 网页，没填地址时是 star.html
-app/renderer/chat.*        助手（多轮对话）；work.* 是工作台（含汇总、勾待办）；list.* 是线索（含信息源与搬运记录）
+app/renderer/chat.*        助手（多轮对话）；work.* 是工作台（含汇总、勾待办、AI 提议）；flow.* 是协同录入窗口；list.* 是线索（含信息源与搬运记录）
 app/renderer/tokens.css    色板（粉 / 蓝 / 黑 / 白 + 紫绿橙红），所有窗口只从这里取色
 app/renderer/theme.css     共用视觉：控件样式只写在这里，颜色全部引用 tokens.css
 src/                       信息源收集器、平台调用、命令行（node src/cli.mjs）

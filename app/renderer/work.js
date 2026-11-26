@@ -21,7 +21,8 @@ const pathOf = p => { const l = (B.taxonomy.lines || []).find(x => x.id === p.li
 const prodMp2 = pid => (B.taxonomy.products || []).find(p => p.id === pid)?.mp2Id ?? null;
 const inScope = mp2Id => !B.scope || mp2Id == null || B.scope.includes(Number(mp2Id));
 const sets = () => ({
-  inbox: B.items.filter(x => isOpen(x) && !x.mp2 && (x.level === 'project' || x.level === 'requirement')),
+  proposal: B.items.filter(x => isOpen(x) && x.proposed && !x.mp2), // AI 想新建的项目 / 需求：人确认后才进「待录入」（1.10.0）
+  inbox: B.items.filter(x => isOpen(x) && !x.mp2 && !x.proposed && (x.level === 'project' || x.level === 'requirement')),
   push: B.items.filter(x => x.mp2 && x.pending > 0),
   todo: B.items.filter(x => x.level === 'todo' && isOpen(x)),
   program: B.items.filter(x => x.level === 'program' && isOpen(x)),
@@ -33,11 +34,11 @@ async function load() {
   try { B = await call('work:board'); } catch (e) { $('#rows').replaceChildren(h('div', { class: 'err' }, e.message)); return; }
   if (jump && current) { // 从别处点进来看某一条：切到它所在的范围
     const x = B.items.find(i => i.id === current); jump = false;
-    if (x) view = x.mp2 ? 'p:' + (x.productId || '') : x.level === 'todo' ? 'todo' : x.level === 'program' ? 'program' : 'inbox';
+    if (x) view = x.mp2 ? 'p:' + (x.productId || '') : x.proposed ? 'proposal' : x.level === 'todo' ? 'todo' : x.level === 'program' ? 'program' : 'inbox';
   }
   const S = sets();
   if (view.startsWith('p:') && !ofProduct(view.slice(2)).length && !B.items.some(x => x.mp2 && (x.productId || '') === view.slice(2))) view = 'inbox';
-  $('#sum').textContent = `待录入 ${S.inbox.length} · 待推送 ${S.push.length} · 我的待办 ${S.todo.length}`;
+  $('#sum').textContent = `${S.proposal.length ? `AI 提议 ${S.proposal.length} · ` : ''}待录入 ${S.inbox.length} · 待推送 ${S.push.length} · 我的待办 ${S.todo.length}`;
   drawNav(); drawList();
   if (current) show(current);
 }
@@ -75,7 +76,8 @@ function drawNav() {
     : h('button', { class: 'sm pri', onclick: () => ipcRenderer.send('panel:action', 'app.connect') }, '去关联'));
   const out = [h('div', { class: 'ln first' }, !P.linked ? '还没有关联：录入和推送都要先关联账号' : P.syncedAt ? '拉取于 ' + when(P.syncedAt) : '还没拉取过平台的结构'),
     h('div', { class: 'nh' }, '我要处理的'),
-    ni('inbox', '待录入', '从线索整理出、还没进平台的项目和需求', S.inbox.length, true),
+    S.proposal.length || view === 'proposal' ? ni('proposal', 'AI 提议', 'AI 想新建的项目和需求：你确认了才成立', S.proposal.length, true) : null,
+    ni('inbox', '待录入', '已经确认、还没进平台的项目和需求', S.inbox.length, true),
     ni('push', '待推送', '改过、还没推到平台', S.push.length, true),
     ni('todo', '我的待办', '只在本机，不进平台', S.todo.length, false),
     S.program.length ? ni('program', '专项', '只在本机', S.program.length, false) : null];
@@ -129,7 +131,8 @@ function drawList() {
     if (rest.length) { if (out.length && heads) out.push(h('div', { class: 'gh' }, heads)); out.push(...rest.map(x => row(x))); }
     return out;
   };
-  if (view === 'inbox') { title = '待录入'; desc = 'AI 从邮件、飞书、纪要里整理出来的项目和需求，还没进平台。逐条核对：按平台的字段补全后录入，或对应到平台上已有的记录。'; rows = nest(S.inbox, '不在项目里的需求'); empty = '没有待录入的内容。点右上角「汇总新线索」让 AI 整理最近的线索。'; }
+  if (view === 'proposal') { title = 'AI 提议'; desc = 'AI 从线索里整理出来、想新建的项目和需求。逐条决定：确认新建（可以改名）、并进已有的一条，或不采纳。确认之前不会进平台。'; rows = nest(S.proposal, '不在项目里的需求'); empty = '没有等你确认的提议。'; }
+  else if (view === 'inbox') { title = '待录入'; desc = 'AI 从邮件、飞书、纪要里整理出来的项目和需求，还没进平台。逐条核对：按平台的字段补全后录入，或对应到平台上已有的记录。'; rows = nest(S.inbox, '不在项目里的需求'); empty = '没有待录入的内容。点右上角「汇总新线索」让 AI 整理最近的线索。'; }
   else if (view === 'push') { title = '待推送'; desc = '这些平台记录在本机改过，还没推到平台。点开核对改动，确认后推送。'; rows = S.push.filter(m).map(x => row(x)); empty = '没有待推送的改动。'; }
   else if (view === 'todo') {
     title = '我的待办'; desc = '只在本机，不进平台。挂在某条需求下的是为了推进它，其余是日常。';
@@ -158,7 +161,7 @@ async function show(id) {
   current = id; document.querySelectorAll('#rows .r').forEach(e => e.classList.toggle('on', e.dataset.id === id));
   let w; try { w = await call('work:item', id); } catch (e) { $('#dhd').replaceChildren(); $('#detail').replaceChildren(h('div', { class: 'empty' }, e.message)); current = null; return; }
   if (current !== id) return;
-  const d = w.mp2 ? platformDetail(w) : (w.level === 'project' || w.level === 'requirement') ? intakeDetail(w) : localDetail(w);
+  const d = w.mp2 ? platformDetail(w) : w.proposed ? proposalDetail(w) : (w.level === 'project' || w.level === 'requirement') ? intakeDetail(w) : localDetail(w);
   const note = flash && flash.id === id ? h('div', { class: 'flash ' + (flash.cls === 'err' ? 'bad' : 'good') }, flash.text) : null; flash = null;
   /* 列头：位置（面包屑）+ 次要操作；下面一张张卡片 */
   $('#dhd').replaceChildren(h('span', { class: 'crumb grow', title: d.crumb }, d.crumb), ...(d.tools || []).filter(Boolean));
@@ -227,7 +230,8 @@ function platformDetail(w) {
   drawPend();
   const parent = w.crumbs.filter(c => c.level === 'project').at(-1);
   return { crumb: `${P.name} › ${[w.line, w.product].filter(Boolean).join(' › ') || '没挂平台产品'}`,
-    tools: [h('button', { class: 'sm', onclick: () => ipcRenderer.invoke('work:mp2-open', w.mp2) }, '在平台上查看'),
+    tools: [w.mp2.kind === 'requirement' ? h('button', { class: 'sm pri', title: '和 AI 一起把这条需求往下走：澄清、需求计划、项目、功能、目标、周总结。AI 出建议和依据，做什么由你选', onclick: () => ipcRenderer.invoke('flow:open', w.id) }, '协同录入') : null,
+      h('button', { class: 'sm', onclick: () => ipcRenderer.invoke('work:mp2-open', w.mp2) }, '在平台上查看'),
       h('button', { class: 'sm ghost', title: '只取消本机的对应关系，不改平台', onclick: async () => { try { await call('work:unbind', w.id); await done(w.id, '已解除对应，这条回到「待录入」。'); } catch (e) { m.replaceChildren(h('div', { class: 'err' }, e.message)); } } }, '解除对应')],
     body: [
     h('h2', {}, w.title),
@@ -254,6 +258,31 @@ function platformDetail(w) {
 }
 
 /* 待录入：选好录成什么、挂在哪个平台产品下，按平台的字段补全，确认后录入；或者对应到平台上已有的记录 */
+/* AI 提议新建的项目 / 需求（1.10.0）：人决定要不要、叫什么、是不是其实已经有了 */
+const grams = s => { const t = String(s || '').toLowerCase().replace(/[\s\p{P}]/gu, ''), g = new Set(); for (let i = 0; i < t.length - 1; i++) g.add(t.slice(i, i + 2)); return g; };
+function alike(w, n = 5) {
+  const a = grams(w.title); if (!a.size) return [];
+  return B.items.filter(x => x.id !== w.id && x.level === w.level && !x.proposed && isOpen(x)).map(x => { const b = grams(x.title); let hit = 0; for (const g of a) if (b.has(g)) hit++; return { x, s: hit / Math.max(1, Math.min(a.size, b.size)) }; })
+    .filter(r => r.s >= 0.34).sort((p, q) => q.s - p.s).slice(0, n).map(r => r.x);
+}
+function proposalDetail(w) {
+  const isReq = w.level === 'requirement', m = h('div'), fail = e => m.replaceChildren(h('div', { class: 'err' }, e.message || String(e)));
+  const name = h('input', { value: w.title, maxlength: 40 }), why = (w.history || []).find(x => (x.fields || []).includes('created'))?.note || '';
+  const act = async (action, o, text) => { try { const r = await call('work:proposal', w.id, action, o); jump = true; current = action === 'confirm' ? w.id : action === 'merge' ? r.id : null; await done(current, text); if (!current) go('proposal'); } catch (e) { fail(e); } };
+  const same = alike(w), parent = w.parentId ? B.items.find(x => x.id === w.parentId) : null;
+  return { crumb: `AI 提议 › 新建${KIND[w.level]}`, body: [
+    card(`AI 想新建一个${isReq ? '需求' : '项目'}`,
+      h('div', { class: 'note' }, `${why ? 'AI 的理由：' + why + '。' : ''}依据 ${w.sources.length} 条线索${w.sources.length ? '（在下面）' : '——没有线索依据，请核对是否真的需要'}。确认之前它不会进平台，也不能录入。`),
+      h('div', { class: 'f' }, ...F('名称', name, true), ...(w.summary ? F('AI 的概括', h('div', { class: 'ro' }, w.summary)) : []),
+        ...(parent ? F('AI 想挂在', h('div', { class: 'ro' }, `${parent.mp2?.code ? parent.mp2.code + ' ' : ''}${parent.title}${parent.proposed ? '（也是 AI 的提议，还没确认）' : ''}`)) : []),
+        ...(w.product ? F('平台产品', h('div', { class: 'ro' }, w.product + (w.anchorSuggested ? '（AI 的建议）' : ''))) : [])),
+      h('div', { class: 'act' }, h('button', { class: 'pri', onclick: () => act('confirm', { title: name.value.trim() }, '已确认，进了「待录入」：按平台的字段补全后录入。') }, '确认新建'),
+        h('button', { onclick: () => act('dismiss', {}, '') }, '不采纳')), m),
+    card(['平台或本机上已经有相近的', h('em', {}, String(same.length))], same.length ? h('div', { class: 'list' }, ...same.map(x => h('div', { class: 'r' },
+        h('span', { class: 'kd ' + x.level }, KIND[x.level]), x.mp2?.code ? h('span', { class: 'code' }, x.mp2.code) : null, h('span', { class: 'ti', title: x.title }, x.title), x.mp2Label ? h('span', { class: 'x' }, x.mp2Label) : null,
+        h('button', { class: 'sm', title: '不新建：把这条提议的线索并进它', onclick: e => { e.stopPropagation(); act('merge', { into: x.id }, '已并进这一条，线索跟过来了。'); } }, '并进这一条'))))
+      : h('div', { class: 'note' }, '没有找到名字相近的记录。'))] };
+}
 function intakeDetail(w) {
   const isReq = w.level === 'requirement', P = B.platform, s = w.mp2Suggest, m = h('div'), prods = B.taxonomy.products || [];
   const fail = e => m.replaceChildren(h('div', { class: 'err' }, e.message || String(e)));

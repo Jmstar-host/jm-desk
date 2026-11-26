@@ -155,12 +155,42 @@ function applyAi(w, patch, now, why) {
   if (changed.length) { w.updatedAt = now; (w.history ||= []).push({ at: now, by: 'ai', fields: changed, note: why || '' }); w.history = w.history.slice(-20); }
   return changed.length;
 }
+/* AI 提议（1.10.0）：AI 想新建的项目和需求先是「提议」（proposed），人确认后才算成立，才能补字段、录入平台。
+ * 待办只在本机、是给自己的提醒，不走提议。确认时可以改名；也可以并进已有的一条（线索和下面的工作跟过去），或者不要。 */
+export const PROPOSABLE = new Set(['project', 'requirement']);
+const hist = (w, now, by, fields, note) => { w.updatedAt = now; (w.history ||= []).push({ at: now, by, fields, note }); w.history = w.history.slice(-20); };
+export function confirmProposal(work, id, { title, now = new Date().toISOString(), by = 'me' } = {}) {
+  const w = work.find(x => x.id === id); if (!w) throw new Error('这条工作已经不在了');
+  if (!w.proposed) return w;
+  const t = clip(title, 40);
+  if (t && t !== w.title) { w.title = t; w.locked = [...new Set([...(w.locked || []), 'title'])]; }
+  delete w.proposed; hist(w, now, by, ['confirmed'], t ? `确认新建，名称定为「${w.title}」` : '确认新建');
+  return w;
+}
+export function dismissProposal(work, id, { now = new Date().toISOString(), by = 'me' } = {}) {
+  const w = work.find(x => x.id === id); if (!w) throw new Error('这条工作已经不在了');
+  if (!w.proposed) throw new Error('这条已经确认过了，不要的话在详情里标「不做了」');
+  for (const c of work) if (c.parentId === id) c.parentId = null; // 下面的工作留着，回到「还没归入」
+  delete w.proposed; w.status = 'dropped'; w.doneAt = now; hist(w, now, by, ['dismissed'], '不采纳 AI 的新建提议');
+  return w;
+}
+export function mergeProposal(work, id, intoId, { now = new Date().toISOString(), by = 'me' } = {}) {
+  const w = work.find(x => x.id === id), to = work.find(x => x.id === intoId);
+  if (!w || !to) throw new Error('这条工作已经不在了');
+  if (!w.proposed) throw new Error('只有 AI 的新建提议可以并进已有的记录');
+  if (to.id === w.id || to.level !== w.level || to.proposed || to.status === 'dropped') throw new Error('只能并进同一层级、已经成立的记录');
+  to.sids = [...new Set([...(to.sids || []), ...(w.sids || [])])];
+  for (const c of work) if (c.parentId === id) c.parentId = to.id;
+  hist(to, now, by, ['merged'], `并入 AI 提议的「${clip(w.title, 20)}」的线索`);
+  delete w.proposed; w.status = 'dropped'; w.doneAt = now; w.mergedInto = to.id; hist(w, now, by, ['merged'], `并进已有的「${clip(to.title, 20)}」`);
+  return to;
+}
 export function mergeWork(work, v, now = new Date().toISOString()) {
   let added = 0, updated = 0;
   for (const it of v.items) {
     const ex = work.find(w => w.id === it.id);
     if (ex) { if (ex.status === 'open' && applyAi(ex, it, now, '重新汇总')) updated++; ex.sids = [...new Set([...(ex.sids || []), ...it.sids])]; continue; }
-    work.push({ ...it, status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'ai', fields: ['created'], note: '从线索整理' }] }); added++;
+    work.push({ ...it, ...(PROPOSABLE.has(it.level) ? { proposed: true } : {}), status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'ai', fields: ['created'], note: '从线索整理' }] }); added++;
   }
   for (const m of v.merges) {
     const ex = work.find(w => w.id === m.id); if (!ex) continue;
@@ -228,7 +258,7 @@ export function applyReorg(work, data, { taxonomy, now = new Date().toISOString(
     const id = hid(c.level, 'reorg', norm(c.title));
     if (!byId.has(id)) {
       const w = { id, level: c.level, type: null, title: clip(c.title, 40), summary: clip(c.summary, 120), owner: 'other', sids: [], parentId: byId.has(c.parent) && LEVELS[byId.get(c.parent).level].n < LEVELS[c.level].n ? c.parent : null,
-        ...anchor(c.line, c.product), autoCreated: true, priority: 'medium', status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'ai', fields: ['created'], note: clip(c.reason, 40) || 'AI 整理新建' }] };
+        ...anchor(c.line, c.product), autoCreated: true, ...(PROPOSABLE.has(c.level) ? { proposed: true } : {}), priority: 'medium', status: 'open', addedAt: now, updatedAt: now, history: [{ at: now, by: 'ai', fields: ['created'], note: clip(c.reason, 40) || 'AI 整理新建' }] };
       work.push(w); byId.set(id, w); log.push(`新建${LEVELS[c.level].label}「${w.title}」`);
     }
     refMap.set(String(c.ref), id);
