@@ -28,6 +28,7 @@ const clip = (s, n) => String(s ?? '').slice(0, n);
 const DL_FILE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,120}\.(dmg|exe|zip)$/;
 function listDl(dir) { try { return fs.readdirSync(dir).filter(f => DL_FILE.test(f) && fs.statSync(path.join(dir, f)).isFile()).sort(); } catch { return []; } }
 const FEED = 'latest.json';
+const MOD_FILE = /^[a-z0-9][a-z0-9._-]{0,80}\.glb$/;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '', dlRepo = '' } = {}) {
@@ -36,6 +37,15 @@ export function createRelay({ now = () => Date.now(), dlDir = null, dlKey = '', 
     try { rest = decodeURIComponent(req.url.split('?')[0].slice(3)); } catch { return send(404, { error: 'not_found' }); }
     if (dlKey) { if (!rest.startsWith('/' + dlKey + '/') && rest !== '/' + dlKey) return send(404, { error: 'not_found' }); rest = rest.slice(dlKey.length + 1); }
     const name = rest.replace(/^\/+/, '');
+    if (name.startsWith('mods/')) { // MOD 库（1.8.4）：DL_DIR/mods/ 里的 index.json（形象清单）和 .glb 模型，只读、不进更深的目录
+      const f = name.slice(5), file = path.join(dlDir, 'mods', f);
+      if (f === 'index.json') { let body; try { body = fs.readFileSync(file); JSON.parse(body); } catch { return send(404, { error: 'not_found' }); }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' }); return res.end(req.method === 'HEAD' ? undefined : body); }
+      let st; try { st = MOD_FILE.test(f) && fs.lstatSync(file); } catch {} if (!st || !st.isFile()) return send(404, { error: 'not_found' });
+      res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': st.size, 'Cache-Control': 'no-cache', 'X-Robots-Tag': 'noindex' });
+      if (req.method === 'HEAD') return res.end();
+      return fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+    }
     if (name === FEED) { // 应用内升级读的版本文件：原样返回，不缓存
       let body; try { body = fs.readFileSync(path.join(dlDir, FEED)); JSON.parse(body); } catch { return send(404, { error: 'not_found' }); }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });

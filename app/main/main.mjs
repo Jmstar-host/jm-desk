@@ -1112,6 +1112,18 @@ ipcMain.handle('svc:has-model', (_e, task) => hasModel(task || 'summary'));
 /* ---------- 形象库 ---------- */
 const charDir = () => path.join(store.dir, 'extensions', 'character');
 const sourcesFile = () => store.file('character-sources.json');
+/* MOD 库（1.8.4）：团队共享的形象清单。地址：settings.mods.url，或企业预置文件顶层的 mods；清单缓存 5 分钟 */
+function modsUrl() { const u = String(settings().mods?.url || '').trim(); if (/^https:\/\//.test(u)) return u; for (const f of [path.join(HERE, '..', 'builtin', 'integrations.json'), store.file('integrations-preset.json')]) { try { const m = JSON.parse(fs.readFileSync(f, 'utf8')).mods; if (/^https:\/\/\S+$/.test(m || '')) return m; } catch {} } return null; }
+let modsCache = { url: null, at: 0, lib: null, error: '' };
+async function modsLibrary(force = false) {
+  const url = modsUrl(); if (!url) return { url: null, name: '', mods: [], error: '' };
+  if (force || modsCache.url !== url || Date.now() - modsCache.at > 5 * 60e3) {
+    // 和 Star 一样先直连：本机代理常常不转发内部域名；直连不通再走系统代理
+    try { let lib; try { lib = await gallery.fetchLibrary((u, o) => starSession().fetch(u, { ...o, credentials: 'omit' }), url); } catch { lib = await gallery.fetchLibrary(net.fetch, url); } modsCache = { url, at: Date.now(), lib, error: '' }; }
+    catch (e) { modsCache = { url, at: Date.now() - 4 * 60e3, lib: modsCache.url === url ? modsCache.lib : null, error: e.message }; }
+  }
+  return { url, name: modsCache.lib?.name || '', mods: modsCache.lib?.mods || [], error: modsCache.error };
+}
 function galleryView() {
   const packs = scanCharacters();
   const sources = gallery.listSources(path.join(HERE, '..', 'builtin', 'characters.json'), sourcesFile());
@@ -1120,7 +1132,15 @@ function galleryView() {
     packs: Object.values(packs).map(({ id, name, license, kind, builtin }) => ({ id, name, license, kind, builtin: !!builtin })) };
 }
 function useCharacter(id) { store.write('character.json', { id, params: loadCharacter().params }); reloadSprite(); }
-ipcMain.handle('char:gallery', () => galleryView());
+ipcMain.handle('char:gallery', async (_e, force) => { const v = galleryView(), lib = await modsLibrary(!!force), packs = scanCharacters();
+  return { ...v, library: { on: !!lib.url, name: lib.name, error: lib.error, mods: lib.mods.map(m => ({ id: m.id, name: m.name, kind: m.kind, author: m.author, license: m.license, note: m.note, page: m.page || null, installed: m.kind === 'gltf' && !!packs[m.id] })) } }; });
+ipcMain.handle('char:install-mod', safe(async (_e, id) => {
+  const m = (await modsLibrary()).mods.find(x => x.id === id); if (!m) throw new Error('MOD 库里没有这个形象');
+  if (m.kind === 'lumi') { store.write('character.json', { id: 'lumi', params: sanitizeParams(m.params) }); reloadSprite(); return galleryView(); }
+  let buf; try { buf = await gallery.download((u, o) => starSession().fetch(u, { ...o, credentials: 'omit' }), m.url); } catch { buf = await gallery.download(net.fetch, m.url); }
+  gallery.installPack(charDir(), { id: m.id, name: m.name, buf, source: m.url, page: m.page, license: m.license, size: m.size || 1.5 });
+  useCharacter(m.id); return galleryView();
+}));
 ipcMain.handle('char:install-source', safe(async (_e, id) => {
   const src = gallery.listSources(path.join(HERE, '..', 'builtin', 'characters.json'), sourcesFile()).find(x => x.id === id);
   if (!src) throw new Error('形象库里没有这个形象');

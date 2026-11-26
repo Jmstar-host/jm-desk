@@ -82,6 +82,16 @@ async function tabCharacter(body) {
       h('div', { class: 'row' }, p.id === G.current ? h('span', { class: 'tag ok' }, '使用中') : h('button', { class: 'pri', onclick: e => run(e.target, 'char:use', p.id) }, '使用'),
         p.builtin ? null : h('button', { class: 'ghost', onclick: e => { if (e.target.dataset.armed !== '1') { e.target.dataset.armed = '1'; e.target.textContent = '确认删除'; return; } run(e.target, 'char:remove', p.id); } }, '删除'))))),
     msg));
+  // MOD 库（1.8.4）：团队共享的形象，点一下下载并使用
+  if (G.library && G.library.on) body.append(h('div', { class: 'card' }, h('h3', {}, G.library.name || 'MOD 库'),
+    h('div', { class: 'muted' }, '团队共享的形象：下载后只存在本机，随时可以换回来。'),
+    G.library.error ? h('div', { class: 'err' }, 'MOD 库现在打不开：' + G.library.error) : null,
+    !G.library.error && !G.library.mods.length ? h('div', { class: 'muted' }, 'MOD 库里还没有形象。') : null,
+    ...G.library.mods.map(x => h('div', { class: 'li' },
+      h('div', { class: 'lt' }, x.name, h('span', { class: 'tag' }, x.kind === 'lumi' ? '星灵配色' : '模型'), x.author ? h('span', { class: 'muted' }, ' ' + x.author) : null),
+      x.note || x.license ? h('div', { class: 'muted' }, [x.note, x.license].filter(Boolean).join(' · ')) : null,
+      h('div', { class: 'row' }, x.installed ? h('button', { onclick: e => run(e.target, 'char:use', x.id) }, '已下载 · 使用') : h('button', { class: 'pri', onclick: e => run(e.target, 'char:install-mod', x.id) }, x.kind === 'lumi' ? '用这套配色' : '下载并使用'),
+        x.page ? h('button', { class: 'ghost', onclick: () => ipcRenderer.invoke('char:open-page', x.page) }, '来源页面') : null)))));
   // 形象库：可以下载的形象（内置原创 + 本机 / 企业自己维护的列表）
   const lib = G.sources.filter(x => !x.installed);
   body.append(h('div', { class: 'card' }, h('h3', {}, '形象库'),

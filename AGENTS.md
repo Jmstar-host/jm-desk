@@ -56,6 +56,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   - `kind: "gltf"`：`entry` 是 `.glb`，可以写 `boneMap`（模型骨骼名 → 统一骨骼名）、`size`、`theme: ["#a1", "#a2"]`（面板主色）。
   - 统一骨骼名：`Spine1 Head LEar REar LArm RArm LForeArm RForeArm Tail1..Tail7`，缺的骨骼会跳过。
   - 动作幅度：导入的 glTF 模型默认收敛（整条尾巴的摆幅按节数平分、睡着时尾巴不往外卷、不抖耳朵），避免长尾巴来回甩看着像抽动；manifest 可写 `motion: { tail, speed, ear, curl }` 调整（`engine.mjs` 的 `MOTION`）。
+- **MOD 库**（1.8.4，团队共享的形象，「设置 › 形象」最上面）：一个 https 地址上的 `index.json`（`settings.mods.url`，或企业预置文件顶层的 `mods`；开源版为空就不显示）。条目两种：`kind: "lumi"` 只带内置星灵的一套参数（配色、触角等，走 `sanitizeParams`）；`kind: "gltf"` 是 `.glb` 模型，`url` 可以写相对路径，但必须和清单同源。清单缓存 5 分钟，只当数据。用中转分发时放在 `DL_DIR/mods/`（`index.json` + `*.glb`，文件名小写），地址是 `<中转地址>/dl/<下载口令>/mods/index.json`（`relay/server.mjs`，只读、不进更深的目录）。**库是发给同事的，和随包形象一样只放原创或许可允许分发的（CC0 等）；现有动漫、游戏角色的模型不要放进去**，那类模型各人只留在自己的 `DATA`。
 - **形象库**（`app/main/gallery.mjs`，「设置 › 形象」）：列表来自 `app/builtin/characters.json`（随包分发，只能放原创形象，目前为空）和 `DATA/character-sources.json`（用户自己维护）。下载只接受 https，下载后校验 glTF 2.0，上限 60 MB。**第三方角色的链接只能放在用户的 `DATA` 里**。
 
 ## 3. 三个维度和工作体系
@@ -182,6 +183,7 @@ cd app && npm run dist:win                # Windows x64 NSIS 安装包
   - 打包前，`scripts/apply-preset.mjs` 把它写入 `app/builtin/integrations.json`；打包后自动清空，所以**仓库里永远是空的**。格式见 `presets/example.integrations.json`。
   - 预置文件顶层可以写 `relay`：串门中转地址，必须是 https。
   - 预置文件顶层可以写 `star`：Star 私有聊天地址（https，或局域网的 http），主窗口「聊天」页直接打开它。
+  - 预置文件顶层可以写 `mods`：MOD 库清单的 https 地址（见 §2）。
   - 预置文件顶层可以写 `update`：升级地址（`latest.json` 的 https 地址），打包时写进 `app/builtin/update.json`，打完自动清空。用中转的下载目录时是 `<中转地址>/dl/<下载口令>/latest.json`。
   - 预置项可以写：`urls`（备用地址，只在连不上时切换）、`allowTools`（工具白名单）、`readOnly`、`knowledge: true`、`credential: { type: "bearer", label, help, inheritEnv }`。
   - **预置文件里不能放凭据**，脚本检测到会拒绝写入。凭据由使用者在界面里粘贴，或者填本机凭据文件的路径（只引用，不复制）。`inheritEnv` 会自动继承本机已有配置里同名变量指向的凭据文件。

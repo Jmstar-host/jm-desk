@@ -24,9 +24,10 @@ for (const i of j.integrations || []) {
 }
 if (j.relay && !/^https:\/\//.test(j.relay)) { console.error('预置的串门中转地址必须是 https'); process.exit(1); }
 if (j.star && !/^(https:\/\/\S+|http:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)\S*)$/.test(j.star)) { console.error('预置的 Star 地址必须是 https，或者局域网的 http 地址'); process.exit(1); }
+if (j.mods != null && (typeof j.mods !== 'string' || !/^https:\/\/\S+$/.test(j.mods))) { console.error('预置的 MOD 库地址（mods）必须是 https:// 开头的 index.json 地址'); process.exit(1); }
 if (j.update != null) {
   if (typeof j.update !== 'string' || !/^https:\/\/\S+$/.test(j.update)) { console.error('预置的升级地址（update）必须是 https:// 开头的 latest.json 地址'); process.exit(1); }
   fs.writeFileSync(updateFile, JSON.stringify({ feed: j.update, fromPreset: true }, null, 2) + '\n');
 }
-fs.writeFileSync(target, JSON.stringify({ ...EMPTY, integrations: j.integrations || [], ...(j.relay ? { relay: j.relay } : {}), ...(j.star ? { star: j.star } : {}) }, null, 2) + '\n');
-console.log(`已预置 ${(j.integrations || []).length} 个接入：${(j.integrations || []).map(i => i.name).join('、')}${j.relay ? '；串门中转：' + j.relay : ''}${j.star ? '；Star：' + j.star : ''}${j.update ? '；升级地址已写入' : ''}`);
+fs.writeFileSync(target, JSON.stringify({ ...EMPTY, integrations: j.integrations || [], ...(j.relay ? { relay: j.relay } : {}), ...(j.star ? { star: j.star } : {}), ...(j.mods ? { mods: j.mods } : {}) }, null, 2) + '\n');
+console.log(`已预置 ${(j.integrations || []).length} 个接入：${(j.integrations || []).map(i => i.name).join('、')}${j.relay ? '；串门中转：' + j.relay : ''}${j.star ? '；Star：' + j.star : ''}${j.mods ? '；MOD 库已写入' : ''}${j.update ? '；升级地址已写入' : ''}`);

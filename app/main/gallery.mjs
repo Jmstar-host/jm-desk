@@ -74,3 +74,29 @@ export function removePack(charDir, id) {
   if (!path.resolve(dir).startsWith(path.resolve(charDir) + path.sep)) throw new Error('路径不合法');
   fs.rmSync(dir, { recursive: true, force: true });
 }
+
+/* ---------- MOD 库（1.8.4）：团队共享的形象清单，放在一个 https 地址上（企业预置的 mods，或 settings.mods.url）。
+ * index.json：{ "name": "库名", "mods": [
+ *   { "id": "mint", "name": "薄荷星灵", "kind": "lumi", "params": { "body": "#a7f3d0", … }, "author": "", "note": "" },      内置星灵的一套配色，只有参数
+ *   { "id": "robo", "name": "小机器人", "kind": "gltf", "url": "robo.glb", "size": 1.5, "license": "CC0", "author": "", "page": "https://…" } ] }
+ * 模型地址可以写相对路径，但必须和清单同源（库里的东西只从库里下）；清单只是数据，不执行里面的任何内容 ---------- */
+export function parseLibrary(json, indexUrl) {
+  const base = httpsUrl(indexUrl); if (!base) return { name: '', mods: [] };
+  const j = typeof json === 'string' ? JSON.parse(json) : json, arr = Array.isArray(j) ? j : Array.isArray(j?.mods) ? j.mods : [], seen = new Set(), mods = [];
+  for (const m of arr.slice(0, 200)) {
+    const id = String(m?.id || ''); if (!ID.test(id) || seen.has(id)) continue;
+    const common = { id, name: clip(m.name || id, 30), author: clip(m.author, 40), license: clip(m.license, 160), note: clip(m.note, 160), origin: 'library' };
+    if (m.kind === 'lumi') { if (!m.params || typeof m.params !== 'object') continue; seen.add(id); mods.push({ ...common, kind: 'lumi', params: m.params }); continue; }
+    let url = null; try { const u = new URL(String(m.url || ''), base); if (u.protocol === 'https:' && u.origin === new URL(base).origin) url = u.href; } catch {}
+    if (!url) continue;
+    seen.add(id); mods.push({ ...common, kind: 'gltf', url, page: httpsUrl(m.page), size: Number(m.size) || null });
+  }
+  return { name: clip(j?.name, 30), mods };
+}
+export async function fetchLibrary(fetchImpl, indexUrl, { timeoutMs = 15000 } = {}) {
+  const u = httpsUrl(indexUrl); if (!u) throw new Error('MOD 库地址要 https');
+  const res = await fetchImpl(u, { signal: AbortSignal.timeout(timeoutMs), headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`MOD 库打不开（${res.status}）`);
+  const text = await res.text(); if (text.length > 512 * 1024) throw new Error('MOD 库清单太大');
+  return parseLibrary(text, u);
+}
