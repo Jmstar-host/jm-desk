@@ -16,11 +16,19 @@ const mew = createSprite($('stage'), { camZ: 4.7 * 220 / 170, roam: 0.22, follow
 mew.fps(60); window.__visitor = { mew, V };
 $('tag').textContent = `${V.name} 的精灵`;
 
-/* 鼠标：只有气泡接收，其余穿透 */
+/* 鼠标：气泡和精灵的身体接收（身体可以被主人按住拖走，1.10.3），其余穿透 */
 let ignoring = null;
 const setIgnore = v => { if (v !== ignoring) { ignoring = v; win.setIgnoreMouseEvents(v, { forward: true }); } };
 setIgnore(true);
-document.addEventListener('mousemove', e => { const s = $('say'), r = s.getBoundingClientRect(); setIgnore(!(s.classList.contains('show') && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom)); });
+const overMew = e => { const r = $('stage').getBoundingClientRect(), hc = mew.hitCircle(); return Math.hypot(e.clientX - (r.left + hc.x), e.clientY - (r.top + hc.y)) <= hc.r; };
+let drag = null, hovering = false;
+document.addEventListener('mousemove', e => {
+  if (drag) return;
+  const s = $('say'), r = s.getBoundingClientRect(), onSay = s.classList.contains('show') && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom, om = !leaving && overMew(e);
+  setIgnore(!(onSay || om)); document.body.style.cursor = om ? 'grab' : '';
+  if (om !== hovering) { hovering = om; mew.hover(om); }
+});
+document.addEventListener('mouseleave', () => { if (!drag) { setIgnore(true); if (hovering) { hovering = false; mew.hover(false); } } });
 
 function say(title, text, buttons = []) {
   $('st').textContent = title; $('sp').textContent = text || '';
@@ -31,14 +39,14 @@ const unsay = () => $('say').classList.remove('show');
 
 /* 飞到 (x, y)（窗口左上角，屏幕坐标），带缓动；边飞边告诉引擎速度，身体会朝前倾 */
 let pos = { x: 0, y: 0 }, gen = 0;
-function fly(x, y, ms) {
+function fly(x, y, ms, arc = -40) {
   const from = { ...pos }, t0 = performance.now(), my = ++gen; // 新的飞行会打断旧的
   return new Promise(res => {
     let last = { ...from }, lt = t0;
     const step = now => {
       if (my !== gen) return res();
       const k = Math.min(1, (now - t0) / ms), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
-      const hop = Math.sin(k * Math.PI) * -40; // 弧线飞行
+      const hop = Math.sin(k * Math.PI) * arc; // 弧线飞行
       pos = { x: from.x + (x - from.x) * e, y: from.y + (y - from.y) * e + hop };
       const dt = Math.max(1, now - lt) / 1000; mew.travel((pos.x - last.x) / dt, (pos.y - last.y) / dt); last = { ...pos }; lt = now;
       try { win.setPosition(Math.round(pos.x), Math.round(pos.y)); } catch {}
@@ -53,7 +61,7 @@ const wa = V.wa || { x: 0, y: 0, width: screen.width, height: screen.height };
 const home = V.home || { x: wa.x + wa.width - 260, y: wa.y + wa.height - 260 };
 const hc = { x: home.x + 110, y: home.y + 110 };
 const left = hc.x - 200 - SX >= wa.x;
-const land = { x: Math.round(hc.x + (left ? -200 : 200) - SX), y: Math.round(Math.max(wa.y, Math.min(wa.y + wa.height - 380, hc.y - SY + 6))) };
+let land = { x: Math.round(hc.x + (left ? -200 : 200) - SX), y: Math.round(Math.max(wa.y, Math.min(wa.y + wa.height - 380, hc.y - SY + 6))) };
 const entry = { x: left ? wa.x - W + 60 : wa.x + wa.width - 60, y: land.y - 120 };
 
 async function arrive() {
@@ -70,15 +78,48 @@ async function arrive() {
 }
 function decide(ok) { $('btns').replaceChildren(); ipcRenderer.send('visitor:decide', V.id, ok); }
 
+/* 等主人的时候不呆站着（1.10.3）：隔几秒在落点附近飘一小段、偶尔做个小动作；被拖着、正在找、要走了的时候不动 */
+const clampPos = p => ({ x: Math.max(wa.x - 60, Math.min(wa.x + wa.width - W + 60, p.x)), y: Math.max(wa.y - 140, Math.min(wa.y + wa.height - 370, p.y)) });
+let searching = false;
+const still = () => leaving || drag || searching;
+async function idle() {
+  while (!leaving) {
+    await sleep(2400 + Math.random() * 2800);
+    if (still() || REDUCED) continue;
+    const a = Math.random() * Math.PI * 2, r = 16 + Math.random() * 26, to = clampPos({ x: land.x + Math.cos(a) * r, y: land.y + Math.sin(a) * r * 0.5 });
+    await fly(to.x, to.y, 1100, -8);
+    if (still()) continue;
+    if (Math.random() < 0.45) mew.trick(['wave', 'peek', 'giggle', 'stretch'][Math.floor(Math.random() * 4)]);
+    await sleep(700 + Math.random() * 900);
+    if (!still()) await fly(land.x, land.y, 1000, -8);
+  }
+}
+/* 主人可以按住访客拖到别处：松手的地方就是它新的落点（之后在那儿等、在那儿找） */
+$('stage').addEventListener('pointerdown', e => {
+  if (e.button !== 0 || leaving || !overMew(e)) return;
+  gen++; mew.travel(0, 0); // 打断正在飞的那一段
+  drag = { sx: e.screenX, sy: e.screenY, px: pos.x, py: pos.y, lx: e.screenX, ly: e.screenY, id: e.pointerId }; document.body.style.cursor = 'grabbing';
+  try { $('stage').setPointerCapture(e.pointerId); } catch {}
+});
+$('stage').addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (e.buttons === 0) return drop(e);
+  pos = clampPos({ x: drag.px + e.screenX - drag.sx, y: drag.py + e.screenY - drag.sy });
+  mew.nudge(e.screenX - drag.lx, e.screenY - drag.ly); drag.lx = e.screenX; drag.ly = e.screenY;
+  try { win.setPosition(Math.round(pos.x), Math.round(pos.y)); } catch {}
+});
+function drop(e) { if (!drag || e.pointerId !== drag.id) return; drag = null; document.body.style.cursor = ''; land = { x: Math.round(pos.x), y: Math.round(pos.y) }; }
+$('stage').addEventListener('pointerup', drop); $('stage').addEventListener('pointercancel', drop);
+
 async function search() {
   say(V.scope ? `正在「${V.scope}」里找…` : '正在你这儿找…', V.ask, [['请它回去', '', () => { $('btns').replaceChildren(); ipcRenderer.send('visitor:dismiss', V.id); }]]); $('seek').classList.add('on'); mew.cast(true);
-  // 找东西时在原地附近转一转
-  const c = { ...land };
-  for (let i = 0; i < 2 && !leaving; i++) { await fly(c.x + (left ? -40 : 40), c.y - 20, 900); if (leaving) break; await fly(c.x, c.y, 900); }
+  // 找东西时在原地附近转一转；之后一直小幅来回，直到找完（被主人拖着时停下，松手后在新地方接着转）
+  searching = true;
+  for (let i = 0; !leaving; i++) { if (drag) { await sleep(300); continue; } const c = { ...land }; await fly(c.x + (i % 2 ? 40 : -40), c.y - 20, 900, i < 2 ? -40 : -14); if (leaving) break; if (!drag) await fly(c.x, c.y, 900, -14); if (REDUCED) break; }
 }
 let leaving = false;
 async function leave(carry) {
-  leaving = true; $('seek').classList.remove('on'); mew.cast(false);
+  leaving = true; searching = false; drag = null; setIgnore(true); document.body.style.cursor = ''; $('seek').classList.remove('on'); mew.cast(false);
   if (carry) { say('找到啦，带回去～', '谢谢主人'); $('parcel').classList.add('on'); mew.trick('loop'); }
   else { say('那我先回去啦', '下次再来玩'); mew.trick('wave'); }
   await sleep(1500); unsay(); document.body.classList.remove('landed');
@@ -88,4 +129,4 @@ async function leave(carry) {
 }
 
 ipcRenderer.on('visitor', (_e, m) => { if (m.type === 'search') search(); else if (m.type === 'leave') leave(!!m.carry); });
-arrive();
+arrive().then(idle);
