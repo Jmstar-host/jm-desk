@@ -88,11 +88,11 @@ function placeBadge() {
 }
 /* ---------- 未读气泡（1.8.3）：邮件、内置聊天各一个小气泡，贴着泡泡左上沿排开；数字是 0 就不显示。
  * 加来源：这里登记图标、颜色和点击动作，主进程 pushUnread('<id>', n, 说明) 推数字（飞书已经留好位置） ---------- */
-const UNREAD = { // 颜色统一用粉色（暖色，和精灵的泡泡一致），靠图标区分来源
-  work: { c: 'var(--pink)', icon: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/>', act: () => send('action', { id: 'app.work' }) }, // 待办（1.8.3 之前是右上角的角标）
-  mail: { c: 'var(--pink)', icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 7.5 8.5 6 8.5-6"/>', act: () => send('action', { id: 'mail.open' }) },
+const UNREAD = { // 颜色用色板里的暖色，各不相同：待办橙、邮件玫红、聊天粉；不用黑、蓝这类冷色（和粉色泡泡不搭）
+  work: { c: 'var(--orange)', icon: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.2 2.4 2.4 4.6-5"/>', act: () => send('action', { id: 'app.work' }) }, // 待办（1.8.3 之前是右上角的角标）
+  mail: { c: 'var(--red)', icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 7.5 8.5 6 8.5-6"/>', act: () => send('action', { id: 'mail.open' }) },
   star: { c: 'var(--pink)', icon: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>', act: () => ipcRenderer.invoke('star:open') },
-  feishu: { c: 'var(--pink)', icon: '<path d="M4 6h16v10H9l-5 4z"/>', act: () => send('action', { id: 'app.clues' }) },
+  feishu: { c: 'var(--violet)', icon: '<path d="M4 6h16v10H9l-5 4z"/>', act: () => send('action', { id: 'app.clues' }) },
 };
 let unreadItems = {}, unreadOn = true;
 ipcRenderer.invoke('sprite:unreads').then(r => { if (r) { unreadItems = r.items || {}; unreadOn = r.on !== false; drawChips(); } }).catch(() => {});
