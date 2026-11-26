@@ -71,7 +71,7 @@ async function arrive() {
 function decide(ok) { $('btns').replaceChildren(); ipcRenderer.send('visitor:decide', V.id, ok); }
 
 async function search() {
-  say(V.scope ? `正在「${V.scope}」里找…` : '正在你这儿找…', V.ask); $('seek').classList.add('on'); mew.cast(true);
+  say(V.scope ? `正在「${V.scope}」里找…` : '正在你这儿找…', V.ask, [['请它回去', '', () => { $('btns').replaceChildren(); ipcRenderer.send('visitor:dismiss', V.id); }]]); $('seek').classList.add('on'); mew.cast(true);
   // 找东西时在原地附近转一转
   const c = { ...land };
   for (let i = 0; i < 2 && !leaving; i++) { await fly(c.x + (left ? -40 : 40), c.y - 20, 900); if (leaving) break; await fly(c.x, c.y, 900); }

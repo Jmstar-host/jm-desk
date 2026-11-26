@@ -73,3 +73,26 @@ test('目录与范围：知识库目录认平台列表；目录内容会被截�
   const rows = [{ title: '绑定失败提示优化' }, { title: '订单导出' }, { title: '绑定流程埋点' }];
   assert.deepEqual(P.matchRows(rows, '绑定 失败').map(r => r.title), ['绑定失败提示优化', '绑定流程埋点']); assert.deepEqual(P.matchRows(rows, '发票'), []);
 });
+
+/* 1.10.2：两边都能叫停 */
+test('请它回去 / 对方叫回：在门口等和正在找的时候都能停，被叫停后不再发结果', async () => {
+  const { createPeerHub } = await import('../app/main/peerhub.mjs');
+  const PP = await import('../app/main/peers.mjs'), other = PP.newIdentity();
+  const events = [], peer = { id: other.box.slice(0, 12), box: other.box, pub: other.pub, name: '乙', status: 'paired', trust: 'ask', tier: 'basic' }, files = { 'peers.json': [peer] };
+  let identity = null, finish = null;
+  const hub = createPeerHub({ store: { read: (f, d) => files[f] ?? d, write: (f, v) => { files[f] = v; } }, getIdentity: () => identity, setIdentity: v => { identity = v; },
+    settings: () => ({ peers: { share: { requirements: true } } }), relay: () => 'https://relay.example.test', fetchImpl: async () => { throw new Error('测试里不联网'); }, myName: () => '甲', myLook: () => ({}), onUpdate() {}, sprite() {}, say() {},
+    visitor: { open: v => events.push('open:' + v.id), send: (id, m) => events.push(`${m.type}:${m.carry ? '带着' : '空手'}`), close() {} }, search: () => new Promise(r => { finish = r; }), catalog: async () => [] });
+  const come = id => hub._handle([{ peer, msg: { type: 'visit', id, ask: '找回调配置的资料', name: '乙' } }]), tick = () => new Promise(r => setTimeout(r, 5));
+  // 在门口等的时候，主人请它回去
+  come('v1'); await tick(); assert.deepEqual(hub.state().guests.map(g => [g.id, g.status]), [['v1', 'arrived']]);
+  hub.dismiss('v1'); assert.equal(hub.state().guests.length, 0); assert.equal(events.at(-1), 'leave:空手');
+  // 正在找的时候，对方把精灵叫回去：访客离开，找完的结果不再发
+  come('v2'); await tick(); const p = hub.decide('v2', true); await tick(); assert.equal(hub.state().guests[0].status, 'searching');
+  hub._handle([{ peer, msg: { type: 'visit-cancel', id: 'v2' } }]); assert.equal(hub.state().guests.length, 0);
+  const before = events.length; finish({ answer: '找到了' }); await p; assert.equal(events.length, before, '被叫停后不再让访客「带着」离开');
+  assert.deepEqual(hub.state().history.slice(0, 2).map(h => [h.status, h.note]), [['recalled', '对方把精灵叫回去了'], ['denied', '主人请它先回去了']]);
+  // 别人的精灵不能被第三方叫走；不存在的编号不报错
+  come('v3'); await tick(); hub._handle([{ peer: { ...peer, box: 'C'.repeat(64) }, msg: { type: 'visit-cancel', id: 'v3' } }]); assert.equal(hub.state().guests.length, 1);
+  assert.doesNotThrow(() => { hub.recall('nope'); hub.dismiss('nope'); }); hub.dismiss('v3'); hub.stop();
+});

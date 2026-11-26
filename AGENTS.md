@@ -121,6 +121,7 @@ node -e "import('./app/main/catalog.mjs').then(m=>console.log(m.validateLayout(J
   2. B 回 `visit-ack`，状态为 `arrived` 或 `searching`。
   3. B 回 `visit-result` 或 `visit-denied`。
   - 4 分钟内没有结果，A 的精灵空手回来。B 这边 3 分钟没人点，自动婉拒。同一时间只接待一个访客。
+  - 两边都能随时叫停（1.10.2）：A 在「串门」页点「叫它回来」（`peerHub.recall`，精灵立刻回来，并发 `visit-cancel` 告诉对方不用找了）；B 在访客窗口或「串门」页点「请它回去」，在门口等和正在找的时候都可以（`peerHub.dismiss`，已经开始的查找停不下来，但结果不再发给对方）。旧版本不认 `visit-cancel`，那边的访客会等到自己超时。
 - **好友分级**（1.4.2，`peers.mjs` 的 `TIERS` / `tierOf` / `shareFor`）：`basic` 普通好友只能找需求池、待办里你开放的部分；`knowledge` 知识好友另外能问你接入的知识库。新加的好友默认普通；1.4.2 之前加的按知识好友算。目录（`peerCatalog(peer)`）和接待时的检索范围都按等级裁剪。
 - **给某个好友开放的文件夹**（1.4.2，`app/main/peerfiles.mjs`，存在 `peers.json` 该好友的 `folders`）：「串门」页每个好友一行「＋ 文件夹」，系统选文件夹对话框选；不能是主目录、磁盘根、系统目录。好友的目录里多一节 `kind: 'files'`，只能在里面按词找（不用模型），回「文件名 + 命中的一句」，不发整份文件；只看文本类文件，跳过隐藏文件、符号链接、node_modules，数量和大小有上限。`peer:set` 不接受 `folders`，只能走 `peer:folder-add`（主进程核对路径）。
 - **B 的权限**：B 只用 `peers.scopeTools(catalog, settings.peers.share)` 筛出来的**只读**工具，用 B 自己的模型去找。可开放的范围是 `knowledge`（标了 `knowledge: true` 的接入）、`requirements`、`todos`；邮件、聊天和线索原文永远不开放。

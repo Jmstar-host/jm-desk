@@ -102,11 +102,17 @@ export function createPeerHub(d) {
     if ([...trips.values()].some(t => t.status !== 'done')) throw new Error('精灵已经出门了，等它回来再去');
     const id = rid();
     await send(peer, { type: 'visit', id, ask: q, name: d.myName(), look: d.myLook(), ...(sc ? { scope: sc } : {}) });
-    const t = { id, peer, ask: q, scope: sc?.label || '', status: 'going', at: Date.now() };
+    const t = { id, peer, ask: q, scope: sc?.label || '', status: 'going', at: Date.now(), until: Date.now() + TRIP_TIMEOUT };
     t.timer = setTimeout(() => finishTrip(id, { status: 'timeout', note: `${name(peer)} 好像不在桌面前，没开门` }), TRIP_TIMEOUT);
     trips.set(id, t); ensureLoop();
     d.sprite({ type: 'trip', phase: 'leave', to: name(peer) });
     d.onUpdate(); return { id };
+  }
+  /* 叫它回来（1.10.2）：出门的一方随时可以把精灵叫回来，不用干等超时。先让精灵回来，再尽量告诉对方不用找了（对方不在线也不影响） */
+  function recall(id) {
+    const t = trips.get(String(id)); if (!t || t.status === 'done') return state();
+    send(t.peer, { type: 'visit-cancel', id: t.id }).catch(() => {});
+    finishTrip(t.id, { status: 'recalled', note: '你把它叫回来了' }); return state();
   }
   function finishTrip(id, r) {
     const t = trips.get(id); if (!t || t.status === 'done') return;
@@ -131,6 +137,15 @@ export function createPeerHub(d) {
     else g.timer = setTimeout(() => decide(id, false, '主人不在桌面前'), ASK_TIMEOUT);
     d.onUpdate();
   }
+  /* 请它回去（1.10.2）：来访的精灵在门口等、或者正在找的时候，主人随时可以请它回去；对方叫它回去（visit-cancel）也走这里。
+   * 已经开始的查找停不下来，但结果不再发给对方（g.called） */
+  function dismiss(id, { reason = '主人请它先回去了', tell = true, by = 'host' } = {}) {
+    const g = guests.get(String(id)); if (!g || g.status === 'gone') return state();
+    clearTimeout(g.timer); g.called = true; g.status = 'gone'; d.visitor.send(g.id, { type: 'leave', carry: false });
+    if (tell) send(g.peer, { type: 'visit-denied', id: g.id, reason }).catch(() => {});
+    log({ dir: 'in', peer: name(g.peer), ask: g.ask, scope: g.scope?.label || '', status: by === 'peer' ? 'recalled' : 'denied', note: by === 'peer' ? '对方把精灵叫回去了' : reason });
+    d.onUpdate(); return state();
+  }
   async function decide(id, ok, reason = '主人这次没空，下次再来') {
     const g = guests.get(id); if (!g || g.status !== 'arrived') return;
     clearTimeout(g.timer);
@@ -144,6 +159,7 @@ export function createPeerHub(d) {
     let r;
     try { r = await d.search({ ask: g.ask, peer: name(g.peer), share: P.shareFor(d.settings().peers?.share || { knowledge: true }, g.peer), scope: g.scope, peerId: g.peer.id }); }
     catch (e) { r = { error: e.message }; }
+    if (g.called) return; // 找的过程中被请回去 / 被对方叫回去了：不再发结果
     g.status = 'gone';
     if (r?.answer) {
       d.visitor.send(id, { type: 'leave', carry: true });
@@ -175,6 +191,7 @@ export function createPeerHub(d) {
       else if (m.type === 'visit-ack') { const t = trips.get(m.id); if (t && t.status !== 'done') { t.status = m.status === 'searching' ? 'searching' : 'arrived'; d.onUpdate(); } }
       else if (m.type === 'visit-result') finishTrip(m.id, { status: 'ok', answer: clip(m.answer, 6000), used: m.used });
       else if (m.type === 'visit-denied') finishTrip(m.id, { status: 'denied', note: clip(m.reason, 80) });
+      else if (m.type === 'visit-cancel') { const g = guests.get(clip(m.id, 20)); if (g && g.peer.box === peer.box) dismiss(g.id, { tell: false, by: 'peer' }); }
     }
   }
   const needLoop = () => !!d.relay() && (peers().length > 0 || !!pending);
@@ -196,10 +213,10 @@ export function createPeerHub(d) {
       relay: d.relay(), me: { name: d.myName(), ready: !!d.getIdentity()?.pub }, share: d.settings().peers?.share || { knowledge: true },
       peers: peers().map(p => ({ id: p.id, name: name(p), fp: p.fp, trust: p.trust, tier: P.tierOf(p), starId: p.starId ?? null, folders: (p.folders || []).map(f => ({ id: f.id, label: f.label, path: f.path })), since: p.since, catalog: p.catalog || null })),
       pending: pending ? { role: pending.role, code: pending.code, expires: pending.expires, peer: pending.peer ? { name: pending.peer.name } : null, fp: pending.fp || null } : null,
-      trips: [...trips.values()].map(t => ({ id: t.id, peer: name(t.peer), ask: t.ask, scope: t.scope || '', status: t.status, result: t.result || null })),
+      trips: [...trips.values()].map(t => ({ id: t.id, peer: name(t.peer), ask: t.ask, scope: t.scope || '', status: t.status, result: t.result || null, until: t.until || null })),
       guests: [...guests.values()].filter(g => g.status !== 'gone').map(g => ({ id: g.id, peer: name(g.peer), ask: g.ask, scope: g.scope?.label || '', status: g.status })),
       history: history().slice(0, 20),
     };
   }
-  return { myCard, adoptStar, state, offer, claim, confirm, cancelPair, setPeer, removePeer, visit, decide, askCatalog, ensureLoop, stop() { stopped = true; }, _handle: handle };
+  return { myCard, adoptStar, state, offer, claim, confirm, cancelPair, setPeer, removePeer, visit, recall, decide, dismiss, askCatalog, ensureLoop, stop() { stopped = true; }, _handle: handle };
 }

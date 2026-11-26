@@ -113,9 +113,12 @@ async function pagePeers(body) {
     }
     // 出门中 / 来访中
     for (const t of S.trips) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `${t.status === 'done' ? '🏠' : '🛸'} 去 ${t.peer} 那里`), t.scope ? h('div', { class: 'muted' }, '范围：' + t.scope) : null, h('div', {}, t.ask),
-      h('div', { class: 'muted' }, t.status === 'done' ? (t.result?.status === 'ok' ? '带回来了，结果在下面' : '空手回来：' + (t.result?.note || '')) : ST[t.status] || t.status)));
+      h('div', { class: 'muted' }, t.status === 'done' ? (t.result?.status === 'ok' ? '带回来了，结果在下面' : '空手回来：' + (t.result?.note || '')) : ST[t.status] || t.status),
+      t.status === 'done' ? null : h('div', { class: 'row' }, h('button', { title: '不等了：让精灵现在就回来，并告诉对方不用找了', onclick: () => inv('peer:recall', t.id).then(draw).catch(e => msg.replaceChildren(errBox(e))) }, '叫它回来'),
+        h('span', { class: 'muted' }, t.until ? `对方一直没回应的话，${Math.max(1, Math.ceil((t.until - Date.now()) / 60e3))} 分钟内它会自己回来` : ''))));
     for (const g of S.guests) cards.push(h('div', { class: 'card trip' }, h('h3', {}, `👋 ${g.peer} 的精灵来了`), h('div', { class: 'muted' }, g.scope ? '想找的范围：' + g.scope : '没有指定范围（对方是旧版本），会在你开放的全部范围里找'), h('div', {}, g.ask),
-      g.status === 'arrived' ? h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:decide', g.id, true) }, '帮它找'), h('button', { onclick: () => inv('peer:decide', g.id, false) }, '请它回去')) : h('div', { class: 'muted' }, '正在帮它找…')));
+      g.status === 'arrived' ? h('div', { class: 'row' }, h('button', { class: 'pri', onclick: () => inv('peer:decide', g.id, true) }, '帮它找'), h('button', { onclick: () => inv('peer:decide', g.id, false) }, '请它回去'))
+        : h('div', { class: 'row' }, h('span', { class: 'muted', style: 'flex:1' }, '正在帮它找…'), h('button', { title: '不找了：让它现在就回去，结果不会发给对方', onclick: () => inv('peer:dismiss', g.id).then(draw) }, '请它回去'))));
     // 去搬运：总是在最前面；还没好友时也显示，引导先加好友
     {
       const has = S.peers.length > 0, goMsg = h('div');

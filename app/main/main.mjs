@@ -402,6 +402,7 @@ const peerHub = createPeerHub({
 });
 app.on('before-quit', () => peerHub.stop());
 ipcMain.on('visitor:decide', (_e, id, ok) => peerHub.decide(String(id), !!ok));
+ipcMain.on('visitor:dismiss', (_e, id) => peerHub.dismiss(String(id)));
 ipcMain.on('visitor:gone', (_e, id) => { const w = visitors.get(String(id)); if (w && !w.isDestroyed()) w.close(); });
 ipcMain.on('visitor:landed', () => {});
 /* 我开放给好友的目录：由开放范围和已接入的知识库自动生成，缓存 10 分钟；改了开放范围就重算。只含名字，不含内容 */
@@ -450,7 +451,7 @@ ipcMain.handle('peer:config', safe((_e, c) => {
 }));
 for (const [ch, fn] of Object.entries({ offer: () => peerHub.offer(), claim: (c) => peerHub.claim(c), confirm: () => peerHub.confirm(), cancel: () => peerHub.cancelPair(),
   // set 去掉 folders：文件夹只能走 peer:folder-add（要核对路径）
-  set: (id, p) => peerHub.setPeer(id, { ...(p || {}), folders: undefined }), remove: id => peerHub.removePeer(id), visit: (id, ask, scope) => peerHub.visit(id, ask, scope), decide: (id, ok) => peerHub.decide(id, ok), catalog: (id, force) => peerHub.askCatalog(id, { force: !!force }) }))
+  set: (id, p) => peerHub.setPeer(id, { ...(p || {}), folders: undefined }), remove: id => peerHub.removePeer(id), visit: (id, ask, scope) => peerHub.visit(id, ask, scope), recall: id => peerHub.recall(id), dismiss: id => peerHub.dismiss(id), decide: (id, ok) => peerHub.decide(id, ok), catalog: (id, force) => peerHub.askCatalog(id, { force: !!force }) }))
   ipcMain.handle('peer:' + ch, safe((_e, ...a) => fn(...a)));
 /* 内置工具：不用任何配置，助手就能查和整理 JM Desk 自己的线索、待办、需求池 */
 let toolActorNow = 'assistant'; // 本机 AI 调用时临时改成 local-ai，写进工作的 history
